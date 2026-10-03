@@ -41,7 +41,7 @@ browsable, explainable knowledge base:
 ## Install
 
 ```powershell
-git clone https://github.com/<you>/histex.git
+git clone https://github.com/GOGA08/histex.git
 cd histex
 winget install junegunn.fzf
 winget install dbrgn.tealdeer     # optional but recommended
