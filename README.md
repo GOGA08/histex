@@ -60,6 +60,11 @@ python histex.py
 | `CTRL-R` | reload the list and toggle sorting (recent <-> most used) |
 | `ESC` | cancel |
 
+The right-hand pane previews the highlighted command - its full text, since the
+list truncates long lines - together with the cached explanation when there is
+one. Hide it with `--no-preview`, or resize it with the `preview_window`
+setting.
+
 ## Modes
 
 ```powershell

@@ -61,6 +61,7 @@ DEFAULT_CONFIG = {
     "detail": "short",             # short | full
     "explain_order": ["cache", "local", "tldr", "cheat"],
     "tldr": True,                  # use the local tldr pages when installed
+    "preview_window": "right:40%:wrap",
     "exclude": [
         r"^(cls|clear|exit|quit)\s*$",
         r"^.{1,2}$",
@@ -657,8 +658,33 @@ def cheat_lookup(queries, config):
     return None
 
 
+def preview_text(command, config):
+    """Text for the fzf preview pane: the command + a cached answer if any.
+
+    Long commands are truncated in the list, so the first block here is the
+    full command - that is what makes the preview useful right away. It must
+    stay instant: nothing here starts tldr, PowerShell or a network request.
+    """
+    segments = [segment.strip() for segment in split_pipeline(command)]
+    head = "\n\n".join(segments)
+    if len(segments) > 1:
+        head += "\n\n(%d commands joined by | ; && ||)" % len(segments)
+
+    for query in candidates(command, config, resolve=False):
+        for key in ("tldr:" + query, query):
+            cached = cache_get(config, key)
+            if cached:
+                return "%s\n\n%s\n\n%s" % (head, "-" * 24, cached.strip())
+    return "%s\n\n%s\n\nno cached explanation yet - press ENTER to explain" % (
+        head, "-" * 24)
+
+
 def explain(command, config, preview=False):
     """Prints an explanation for one command. Returns the source label."""
+    if preview:
+        print(preview_text(command, config))
+        return "preview"
+
     segments = split_pipeline(command)
     if len(segments) > 1:
         for position, segment in enumerate(segments, 1):
@@ -669,17 +695,6 @@ def explain(command, config, preview=False):
 
     tokens = command.split()
     if not tokens:
-        return "none"
-
-    if preview:
-        # Previews must be instant and must never touch the network.
-        for query in candidates(command, config, resolve=False):
-            for key in ("tldr:" + query, query):
-                cached = cache_get(config, key)
-                if cached:
-                    print(cached.strip())
-                    return "cache"
-        print("(no cached explanation yet - press ENTER)")
         return "none"
 
     queries = candidates(command, config)
@@ -926,8 +941,7 @@ def save_recipe_flow(commands, config):
 
 
 # --- fzf --------------------------------------------------------------------
-FZF_HEADER = ("ENTER: explain | TAB: mark | CTRL-T: save  |  "
-              "CTRL-O: copy | CTRL-R: reload/sort")
+FZF_HEADER = ("ENTER explain | TAB mark | ^T save | ^O copy | ^R reload")
 SORT_STATE = os.path.join(os.path.dirname(CONFIG_PATH), "sort.state")
 
 
@@ -1033,7 +1047,8 @@ def run_fzf(entries, config, allow_preview=True):
     ]
     if allow_preview and config.get("preview"):
         args.append("--preview=" + self_command("--preview", "{}"))
-        args.append("--preview-window=right:50%:wrap")
+        args.append("--preview-window=" + str(config.get("preview_window")
+                                             or "right:40%:wrap"))
 
     try:
         proc = subprocess.run(
@@ -1357,6 +1372,12 @@ def self_test(config):
     check("tldr path lookup is safe",
           tldr_path() is None or os.path.isfile(tldr_path()))
     check("tldr update helper is wired", callable(update_tldr))
+    preview = preview_text("zzz-cmd | ww; qq", DEFAULT_CONFIG)
+    check("preview keeps compound commands whole", "--- [1/" not in preview)
+    check("preview shows the whole command",
+          "zzz-cmd" in preview.splitlines()[0])
+    check("preview counts the joined commands",
+          any("3 commands joined" in line for line in preview.splitlines()))
     sample = ("### Date: 2026-10-04 00:39 - My title   <!-- tags: a, b -->\n"
               "\n```bash\nls -la\n```\n")
     check("recipe parsing strips date and tags",
@@ -1485,6 +1506,8 @@ def main(argv=None):
     print("[i] %s   (%s)" % (path, label), file=sys.stderr)
     print("    %d unique commands, sorted by %s" % (len(entries), config.get("sort")),
           file=sys.stderr)
+    print("    keys: ENTER explain | TAB mark | CTRL-T save | CTRL-O copy | "
+          "CTRL-R reload/sort | ESC cancel", file=sys.stderr)
 
     status, key, selected = run_fzf(entries, config)
     if status == "error":
