@@ -1,0 +1,25 @@
+# --- your own data (never publish these) -----------------------------------
+saved_recipes.md
+recipes.jsonl
+history_log.tsv
+scripts/
+histex_profile.ps1
+*.histex-backup
+config.json
+
+# --- python ----------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+build/
+dist/
+*.egg-info/
+
+# --- editors / OS ----------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+Desktop.ini
+.DS_Store
