@@ -120,7 +120,7 @@ func orNoTool(text string) string {
 
 // doctorMode is doctor_mode(): health check with install hints, exit 1 broken.
 func doctorMode(cfg *Config) int {
-	outLine("histex " + version + "  (no browser - terminal and files only)")
+	outLine("%s", "histex "+version+"  (no browser - terminal and files only)")
 	outLine("")
 	rows := doctorRows(cfg)
 	bad := 0

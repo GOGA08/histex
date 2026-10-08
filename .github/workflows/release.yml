@@ -16,10 +16,22 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - name: build histex.exe
-        run: go build -o histex.exe -trimpath -ldflags "-s -w" .
+      - name: build histex.exe (version taken from the tag)
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          go build -o histex.exe -trimpath -ldflags "-s -w -X main.version=$version" .
       - name: self-test the binary that is about to be shipped
         run: .\histex.exe --self-test
+      - name: check that the reported version matches the tag
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          $reported = (.\histex.exe --version).Trim().Split(" ")[1]
+          if ($reported -ne $version) {
+            throw "histex.exe reports $reported but the tag is $version"
+          }
+          Write-Output "[ok] histex.exe reports $reported"
       - name: publish the release and attach histex.exe
         shell: pwsh
         env:
