@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -17,6 +18,54 @@ const fzfHeader = "ENTER explain | TAB mark | ^T save | ^O copy | ^P preview | ^
 // fzfPath is fzf_path().
 func fzfPath() string {
 	return lookWhich("fzf")
+}
+
+// fzfInfo is the parsed result of `fzf --version`.
+type fzfInfo struct {
+	version      string
+	major, minor int
+}
+
+// supportsHistoryScheme reports whether --scheme=history is available. The
+// scheme arrived in fzf 0.33.0; older builds (Ubuntu 22.04 ships 0.29) reject
+// the flag and would fail to start.
+func (info fzfInfo) supportsHistoryScheme() bool {
+	if info.major != 0 {
+		return info.major > 0
+	}
+	return info.minor >= 33
+}
+
+// parseFzfVersion reads the first field of `fzf --version`, which looks like
+// "0.74.4 (a140afeb)" - the hash part is optional.
+func parseFzfVersion(text string) (fzfInfo, bool) {
+	fields := strings.Fields(strings.TrimSpace(text))
+	if len(fields) == 0 {
+		return fzfInfo{}, false
+	}
+	number := strings.TrimPrefix(fields[0], "v")
+	parts := strings.Split(number, ".")
+	if len(parts) < 2 {
+		return fzfInfo{}, false
+	}
+	major, majorErr := strconv.Atoi(parts[0])
+	minor, minorErr := strconv.Atoi(parts[1])
+	if majorErr != nil || minorErr != nil {
+		return fzfInfo{}, false
+	}
+	return fzfInfo{version: number, major: major, minor: minor}, true
+}
+
+// fzfVersion asks the fzf binary for its version.
+func fzfVersion(exe string) (fzfInfo, bool) {
+	cmd := exec.Command(exe, "--version")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = nil
+	if err := cmd.Run(); err != nil {
+		return fzfInfo{}, false
+	}
+	return parseFzfVersion(out.String())
 }
 
 // executablePath is what self_command() used as sys.executable.
@@ -144,17 +193,32 @@ func runFzf(entries []string, cfg *Config, allowPreview bool, prompt string) (st
 		"--expect=" + strings.Join(expect, ","),
 		"--read0",
 		"--print0",
-		"--scheme=history",
+	}
+	// --scheme=history needs fzf >= 0.33; older builds (Ubuntu 22.04 has
+	// 0.29) reject the flag, so it is only passed when it is supported.
+	if info, known := fzfVersion(exe); known {
+		if info.supportsHistoryScheme() {
+			args = append(args, "--scheme=history")
+		} else {
+			errLine("[i] fzf %s is older than 0.33 - picking with the default "+
+				"scoring scheme (install a newer fzf for history ranking).",
+				info.version)
+		}
+	} else {
+		errLine("[i] could not read the fzf version - using the default " +
+			"scoring scheme.")
+	}
+	args = append(args,
 		"--height=80%",
 		"--border",
 		"--layout=reverse",
 		"--marker=> ",
 		"--pointer=>",
-		"--prompt=" + prompt,
-		"--header=" + fzfHeader,
+		"--prompt="+prompt,
+		"--header="+fzfHeader,
 		"--header-first",
-		"--bind=" + reloadKey + ":reload(" + selfCommand("--print-list", "--toggle-sort") + ")",
-	}
+		"--bind="+reloadKey+":reload("+selfCommand("--print-list", "--toggle-sort")+")",
+	)
 	if allowPreview && !cfg.PreviewOff {
 		if !cfg.Preview && !strings.Contains(window, "hidden") {
 			window += ",hidden" // hidden by default; toggle it with CTRL-P

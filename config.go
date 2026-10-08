@@ -408,7 +408,8 @@ func migrateData(datadir string, verbose bool, scriptDirOverride string, homeDir
 			errLine("[!] could not migrate %s: %s", source, err)
 			return 0
 		}
-		outLine("[i] migrated %s -> %s", source, datadir)
+		// stderr: migration must never pollute --json / --pick / --print-list
+		errLine("[i] migrated %s -> %s", source, datadir)
 		return 1
 	}
 
@@ -448,7 +449,7 @@ func migrateData(datadir string, verbose bool, scriptDirOverride string, homeDir
 			movedFiles++
 		}
 		if movedFiles > 0 {
-			outLine("[i] migrated %s (%d files) -> %s", source, movedFiles, target)
+			errLine("[i] migrated %s (%d files) -> %s", source, movedFiles, target)
 		}
 		return movedFiles
 	}

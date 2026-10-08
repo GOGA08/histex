@@ -46,11 +46,21 @@ func doctorRows(cfg *Config) []doctorRow {
 	})
 
 	exe := fzfPath()
-	detail := exe
-	if detail == "" {
-		detail = fzfInstallHint()
+	switch {
+	case exe == "":
+		rows = append(rows, doctorRow{"fzf missing", false, fzfInstallHint()})
+	default:
+		if info, known := fzfVersion(exe); known {
+			detail := exe
+			if !info.supportsHistoryScheme() {
+				detail = sprintf("%s   (fzf %s is older than 0.33: the picker "+
+					"uses the default scoring scheme)", exe, info.version)
+			}
+			rows = append(rows, doctorRow{"fzf " + info.version, true, detail})
+		} else {
+			rows = append(rows, doctorRow{"fzf " + exe, true, exe})
+		}
 	}
-	rows = append(rows, doctorRow{"fzf " + orMissing(exe), exe != "", detail})
 
 	if texe := tldrPath(); texe != "" {
 		rows = append(rows, doctorRow{"tldr " + texe, true,
@@ -102,13 +112,6 @@ func doctorRows(cfg *Config) []doctorRow {
 				"$PROFILE, then open a new terminal", snippet)})
 	}
 	return rows
-}
-
-func orMissing(text string) string {
-	if text == "" {
-		return "missing"
-	}
-	return text
 }
 
 func orNoTool(text string) string {

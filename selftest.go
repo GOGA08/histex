@@ -143,6 +143,15 @@ func selfTest(cfg *Config) int {
 	check("cheat.sh hit detection", !cheatMiss("# tar\n# GNU version"))
 	check("fzf install hint is OS specific",
 		strings.Contains(fzfInstallHint(), "install"))
+	parsed, parsedOK := parseFzfVersion("0.74.4 (a140afeb)")
+	check("fzf version string is parsed",
+		parsedOK && parsed.version == "0.74.4" && parsed.major == 0 &&
+			parsed.minor == 74)
+	fzfOld := fzfInfo{version: "0.29.0", major: 0, minor: 29}
+	fzfNew := fzfInfo{version: "0.33.0", major: 0, minor: 33}
+	check("--scheme=history needs fzf 0.33 or newer",
+		!fzfOld.supportsHistoryScheme() && fzfNew.supportsHistoryScheme() &&
+			parsed.supportsHistoryScheme())
 	check("explain order includes the local tldr source",
 		containsString(defaultConfig().ExplainOrder, "tldr"))
 	disabled := *defaultConfig()
