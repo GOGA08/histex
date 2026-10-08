@@ -10,6 +10,7 @@ What it does:
         TAB      mark a command (SHIFT-TAB unmarks)
         CTRL-T   save the marked commands as a recipe (+ optional runnable script)
         CTRL-O   copy the marked / current commands to the clipboard
+        CTRL-P   toggle the preview pane (hidden by default)
         CTRL-R   reload the list and toggle sorting (recent <-> frequent)
 
 Explanations are looked up in this order (first hit wins, configurable through
@@ -82,7 +83,8 @@ DEFAULT_CONFIG = {
     "expect": "ctrl-t,ctrl-x",
     "clip_key": "ctrl-o",
     "reload_key": "ctrl-r",
-    "preview": True,
+    "preview": False,            # hidden by default; CTRL-P toggles it in fzf
+    "preview_key": "ctrl-p",
 }
 
 
@@ -941,7 +943,7 @@ def save_recipe_flow(commands, config):
 
 
 # --- fzf --------------------------------------------------------------------
-FZF_HEADER = ("ENTER explain | TAB mark | ^T save | ^O copy | ^R reload")
+FZF_HEADER = ("ENTER explain | TAB mark | ^T save | ^O copy | ^P preview | ^R sort")
 SORT_STATE = os.path.join(os.path.dirname(CONFIG_PATH), "sort.state")
 
 
@@ -1042,13 +1044,20 @@ def run_fzf(entries, config, allow_preview=True):
         "--pointer=>",
         "--prompt=histex> ",
         "--header=" + FZF_HEADER,
+        "--header-first",
         "--bind=" + (config.get("reload_key") or "ctrl-r")
         + ":reload(" + self_command("--print-list", "--toggle-sort") + ")",
     ]
-    if allow_preview and config.get("preview"):
+    if allow_preview and not config.get("_preview_off"):
+        window = str(config.get("preview_window") or "right:40%:wrap")
+        if not config.get("preview") and "hidden" not in window:
+            window += ",hidden"      # hidden by default; toggle it with CTRL-P
         args.append("--preview=" + self_command("--preview", "{}"))
-        args.append("--preview-window=" + str(config.get("preview_window")
-                                             or "right:40%:wrap"))
+        args.append("--preview-window=" + window)
+        preview_key = (config.get("preview_key") or "ctrl-p").strip() or "ctrl-p"
+        args.append("--bind=" + preview_key + ":toggle-preview")
+        if preview_key != "ctrl-/":
+            args.append("--bind=ctrl-/:toggle-preview")
 
     try:
         proc = subprocess.run(
@@ -1382,6 +1391,12 @@ def self_test(config):
               "\n```bash\nls -la\n```\n")
     check("recipe parsing strips date and tags",
           parse_recipes(DEFAULT_CONFIG, sample) == [("My title", ["a", "b"], ["ls -la"])])
+    check("preview is hidden by default",
+          DEFAULT_CONFIG.get("preview") is False)
+    check("preview toggle key is configured",
+          (DEFAULT_CONFIG.get("preview_key") or "") == "ctrl-p")
+    check("header mentions the preview key",
+          "^P" in FZF_HEADER)
 
     failures = [item for item in results if not item[1]]
     for name, ok in results:
@@ -1400,7 +1415,7 @@ def build_parser():
         epilog=("Keys inside fzf:\n"
                 "  ENTER   explain            TAB     mark / unmark\n"
                 "  CTRL-T  save recipe        CTRL-O  copy to clipboard\n"
-                "  CTRL-R  reload + toggle sorting (recent <-> frequent)"))
+                "  CTRL-P  toggle preview     CTRL-R  reload + sort toggle"))
     parser.add_argument("--version", action="version", version="histex " + VERSION)
     parser.add_argument("-r", "--recipes", metavar="FILE", help="recipes markdown file")
     parser.add_argument("--scripts-dir", metavar="DIR", help="where runnable scripts go")
@@ -1420,7 +1435,9 @@ def build_parser():
     parser.add_argument("--offline", action="store_true", help="never use the network")
     parser.add_argument("--no-cache", action="store_true", help="ignore the local cache")
     parser.add_argument("--no-preview", action="store_true",
-                        help="disable the preview pane")
+                        help="disable the preview pane entirely (no toggle)")
+    parser.add_argument("--show-preview", action="store_true",
+                        help="start with the preview pane visible")
     parser.add_argument("--no-tldr", action="store_true",
                         help="do not use the local tldr pages")
     parser.add_argument("--update-tldr", action="store_true",
@@ -1461,6 +1478,9 @@ def main(argv=None):
         config["cache"] = False
     if options.no_preview:
         config["preview"] = False
+        config["_preview_off"] = True
+    if options.show_preview:
+        config["preview"] = True
     if options.no_tldr:
         config["tldr"] = False
 
@@ -1507,7 +1527,7 @@ def main(argv=None):
     print("    %d unique commands, sorted by %s" % (len(entries), config.get("sort")),
           file=sys.stderr)
     print("    keys: ENTER explain | TAB mark | CTRL-T save | CTRL-O copy | "
-          "CTRL-R reload/sort | ESC cancel", file=sys.stderr)
+          "CTRL-P preview | CTRL-R reload/sort | ESC cancel", file=sys.stderr)
 
     status, key, selected = run_fzf(entries, config)
     if status == "error":

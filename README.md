@@ -10,7 +10,7 @@ file, Python standard library only - the only external requirement is
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│ ENTER: explain | TAB: mark | CTRL-T: save                     663/663│
+│ ENTER explain | TAB mark | ^T save | ^O copy | ^P preview  663/663│
 │ histex> docker                                                      │
 │ > docker compose up -d                                              │
 │   docker ps -a                                                      │
@@ -57,13 +57,15 @@ python histex.py
 | `TAB` / `SHIFT-TAB` | mark / unmark a command (to save several at once) |
 | `CTRL-T` | save as a recipe (+ optional runnable script) |
 | `CTRL-O` | copy the marked / current command(s) to the clipboard |
+| `CTRL-P` (`CTRL-/` too) | toggle the preview pane (hidden by default) |
 | `CTRL-R` | reload the list and toggle sorting (recent <-> most used) |
 | `ESC` | cancel |
 
-The right-hand pane previews the highlighted command - its full text, since the
-list truncates long lines - together with the cached explanation when there is
-one. Hide it with `--no-preview`, or resize it with the `preview_window`
-setting.
+The preview pane is hidden by default so the list uses the full width - press
+`CTRL-P` (or `CTRL-/`) to show the highlighted command in full, together with
+the cached explanation when there is one. Start with it visible via
+`--show-preview`, disable it entirely with `--no-preview`, or resize it with
+the `preview_window` setting.
 
 ## Modes
 
