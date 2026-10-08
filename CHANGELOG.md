@@ -2,6 +2,28 @@
 
 All notable changes to histex. No browser integration - terminal and files only.
 
+## [Unreleased]
+
+### Added
+- One data root: everything user-owned (config, `saved_recipes.md`, `scripts/`,
+  `recipes.jsonl`, cache, `sort.state`, the prompt snippet) now lives in
+  `%APPDATA%\histex` on Windows (or `~/.histex` elsewhere). Override with
+  `--data-dir DIR` or `HISTEX_DATA_DIR`; drop a `histex.portable` marker next
+  to the script/exe for a portable install.
+- Safe one-time migration from the old split locations (script dir +
+  `~/.histex`): copy-only, never overwrites an existing target, never deletes
+  an original, idempotent, and writes a `migrated.json` receipt. `--no-migrate`
+  skips it.
+- Frozen-exe awareness (`is_frozen()`), so a packaged build never writes next
+  to the program directory.
+
+### Changed
+- Config path fields (`recipes`, `scripts_dir`, `jsonl`, `cache_dir`) default
+  to `null` and are resolved into the data dir at runtime; an explicit value
+  still wins.
+- `--self-test` grew to 51 offline checks (migration, data paths, atomic
+  writes, frozen self-command).
+
 ## [2.0] - 2026-10-08
 
 Second generation: the V1 idea (fzf over PowerShell history + cheat.sh + a

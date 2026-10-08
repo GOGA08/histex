@@ -47,18 +47,90 @@ VERSION = "2.0"
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 HOME = os.path.expanduser("~")
-CONFIG_PATH = os.path.join(HOME, ".histex", "config.json")
+
+
+def is_frozen():
+    """True when running as a frozen exe (PyInstaller) instead of a script."""
+    return bool(getattr(sys, "frozen", False))
+
+
+def base_roots():
+    """Returns (appdata_root, script_dir) used by the data-dir policy."""
+    appdata = os.environ.get("APPDATA")
+    return appdata, SCRIPT_DIR
+
+
+def resolve_data_dir(override=None):
+    """Returns the data directory. Policy (option A):
+
+    1) explicit override (--data-dir / HISTEX_DATA_DIR / config)
+    2) portable marker: a file named 'histex.portable' next to the
+       script/exe -> the folder next to it (USB-stick / portable use)
+    3) Windows: %APPDATA%\\histex  (roaming; recipes follow the user)
+    4) POSIX: $XDG_DATA_HOME/histex, else ~/.local/share/histex,
+       else ~/.histex (old location, keeps old behaviour)
+    5) fallback chain when the chosen folder is not writable:
+       existing candidate dirs, then SCRIPT_DIR/data, then %TEMP%.
+    """
+    if override:
+        return os.path.abspath(os.path.expanduser(override))
+    _, script_dir = base_roots()
+    marker = os.path.join(script_dir, "histex.portable")
+    if os.path.isfile(marker):
+        return script_dir
+    candidates = []
+    if os.name == "nt":
+        appdata, _ = base_roots()
+        if appdata:
+            candidates.append(os.path.join(appdata, "histex"))
+    else:
+        xdg = os.environ.get("XDG_DATA_HOME")
+        if xdg:
+            candidates.append(os.path.join(xdg, "histex"))
+        else:
+            candidates.append(os.path.join(HOME, ".local", "share", "histex"))
+        candidates.append(os.path.join(HOME, ".histex"))
+    for candidate in candidates:
+        if not _writable_dir(candidate):
+            continue
+        return candidate
+    fallback = os.path.join(script_dir, "data")
+    if _writable_dir(fallback):
+        return fallback
+    return os.path.join(tempfile.gettempdir(), "histex")
+
+
+def _writable_dir(path):
+    """True when path exists (or can be created) and is writable."""
+    try:
+        os.makedirs(path, exist_ok=True)
+    except OSError:
+        return False
+    probe = os.path.join(path, ".histex-write-test")
+    try:
+        with open(probe, "w", encoding="utf-8") as handle:
+            handle.write("ok")
+        os.unlink(probe)
+        return True
+    except OSError:
+        return False
+
+
+def ensure_data_dir(path):
+    os.makedirs(path, exist_ok=True)
+    return path
+
 
 DEFAULT_CONFIG = {
-    "recipes": os.path.join(SCRIPT_DIR, "saved_recipes.md"),
-    "scripts_dir": os.path.join(SCRIPT_DIR, "scripts"),
-    "jsonl": os.path.join(SCRIPT_DIR, "recipes.jsonl"),
+    "recipes": None,                 # None = <data-dir>/saved_recipes.md
+    "scripts_dir": None,             # None = <data-dir>/scripts
+    "jsonl": None,                   # None = <data-dir>/recipes.jsonl
     "history": None,               # None = auto-detect
     "shell": "auto",               # auto | ps5 | ps7 | bash | zsh
     "network": True,               # False = never touch the network
     "cache": True,
     "cache_ttl_hours": 168,
-    "cache_dir": os.path.join(HOME, ".histex", "cache"),
+    "cache_dir": None,               # None = <data-dir>/cache
     "sort": "recent",              # recent | freq
     "max_items": 5000,
     "detail": "short",             # short | full
@@ -89,11 +161,84 @@ DEFAULT_CONFIG = {
     "preview_key": "ctrl-p",
 }
 
+LEGACY_HOME_DIR = os.path.join(HOME, ".histex")
 
-def load_config(path=None):
-    """Merges ~/.histex/config.json over the built-in defaults."""
+# File names inside the data dir (option A: one root, %APPDATA%\histex).
+DATA_FILENAMES = {
+    "recipes": "saved_recipes.md",
+    "scripts_dir": "scripts",
+    "jsonl": "recipes.jsonl",
+    "cache_dir": "cache",
+    "snippet": "histex_profile.ps1",
+    "sidecar": "history_log.tsv",
+}
+
+
+def _fill_data_paths(config):
+    """Fills path settings left as None with <data-dir>/... (idea: 1 root)."""
+    root = config.get("_datadir") or resolve_data_dir()
+    config["_datadir"] = root
+    for key, name in DATA_FILENAMES.items():
+        if not config.get(key):
+            config[key] = os.path.join(root, name)
+    return config
+
+
+def data_path(config, key):
+    """Resolved path for a data-dir setting (honours explicit overrides)."""
+    value = config.get(key) if isinstance(config, dict) else None
+    if value:
+        return value
+    root = None
+    if isinstance(config, dict):
+        root = config.get("_datadir")
+    if not root:
+        root = resolve_data_dir()
+    if key == "cache_dir":
+        return os.path.join(root, "cache")
+    return os.path.join(root, DATA_FILENAMES.get(key, key))
+
+
+def sort_state_path(config):
+    """Where the recent<->freq toggle is remembered (idea 8/13)."""
+    root = config.get("_datadir") if isinstance(config, dict) else None
+    if not root:
+        legacy = config.get("_path") if isinstance(config, dict) else ""
+        root = os.path.dirname(legacy or "") or os.path.join(HOME, ".histex")
+    return os.path.join(root, "sort.state")
+
+
+def atomic_write(path, data, encoding="utf-8", newline=None, raw=None):
+    """Writes a file without ever leaving a half-written one behind.
+
+    raw (bytes) wins over data (str); callers keep their exact old bytes.
+    """
+    directory = os.path.dirname(path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding=encoding, newline=newline) as handle:
+        if raw is not None:
+            handle.buffer.write(raw)
+        else:
+            handle.write(data)
+    os.replace(tmp, path)
+    return path
+
+
+def load_config(path=None, datadir=None, do_migrate=False):
+    """Merges the config file over the built-in defaults.
+
+    The config file lives in the data dir (<data-dir>/config.json) unless
+    overridden (--config / HISTEX_CONFIG). Migration runs separately in
+    main() so that --self-test and fzf callbacks never move user data.
+    """
+    if datadir is None:
+        datadir = resolve_data_dir(os.environ.get("HISTEX_DATA_DIR"))
     config = dict(DEFAULT_CONFIG)
-    path = path or os.environ.get("HISTEX_CONFIG") or CONFIG_PATH
+    config["_datadir"] = datadir
+    path = path or os.environ.get("HISTEX_CONFIG") or os.path.join(
+        datadir, "config.json")
     if os.path.isfile(path):
         try:
             with open(path, "r", encoding="utf-8-sig") as handle:
@@ -105,17 +250,18 @@ def load_config(path=None):
         except (OSError, ValueError) as exc:
             print("[!] ignoring %s: %s" % (path, exc), file=sys.stderr)
     config["_path"] = path
-    return config
+    return _fill_data_paths(config)
 
 
-def write_default_config(path):
+def write_default_config(path, config=None):
     """Creates a documented config file (used by --init-config)."""
     directory = os.path.dirname(path)
     if directory:
         os.makedirs(directory, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as handle:
-        json.dump(DEFAULT_CONFIG, handle, indent=2, ensure_ascii=False)
-        handle.write("\n")
+    source = dict(config) if isinstance(config, dict) else dict(DEFAULT_CONFIG)
+    source = {key: value for key, value in source.items()
+              if not key.startswith("_")}
+    atomic_write(path, json.dumps(source, indent=2, ensure_ascii=False) + "\n")
     return path
 
 
@@ -311,7 +457,7 @@ def load_history(config, join_continuations=True):
 # --- local cache (idea 5) ---------------------------------------------------
 def cache_path(config, key):
     safe = re.sub(r"[^A-Za-z0-9._-]+", "_", key)[:80].strip("_") or "entry"
-    return os.path.join(config["cache_dir"], safe + ".txt")
+    return os.path.join(data_path(config, "cache_dir"), safe + ".txt")
 
 
 def cache_get(config, key):
@@ -334,9 +480,7 @@ def cache_put(config, key, body):
     if not config.get("cache") or not body:
         return
     try:
-        os.makedirs(config["cache_dir"], exist_ok=True)
-        with open(cache_path(config, key), "w", encoding="utf-8") as handle:
-            handle.write(body)
+        atomic_write(cache_path(config, key), body)
     except OSError:
         pass
 
@@ -840,7 +984,7 @@ def script_body(commands, extension):
 
 def write_script(config, title, commands, extension):
     """Writes a runnable script for the selected commands (idea 21 + request)."""
-    directory = config.get("scripts_dir") or os.path.join(SCRIPT_DIR, "scripts")
+    directory = data_path(config, "scripts_dir")
     os.makedirs(directory, exist_ok=True)
     path = os.path.join(directory, slugify(title) + extension)
     # cmd.exe chokes on a UTF-8 BOM; PowerShell needs one for non-ASCII text.
@@ -852,10 +996,7 @@ def write_script(config, title, commands, extension):
 
 def recipes_append(config, title, commands, tags=None):
     """Appends a recipe block to the markdown file (ideas 18/21)."""
-    path = config.get("recipes") or DEFAULT_CONFIG["recipes"]
-    directory = os.path.dirname(path)
-    if directory:
-        os.makedirs(directory, exist_ok=True)
+    path = data_path(config, "recipes")
     stamp = time.strftime("%Y-%m-%d %H:%M")
     heading = "### Date: %s - %s" % (stamp, title)
     if tags:
@@ -863,6 +1004,9 @@ def recipes_append(config, title, commands, tags=None):
     block = "%s\n\n```bash\n%s\n```\n\n" % (heading, "\n".join(commands))
     # A UTF-8 BOM stops PowerShell 5.1's Get-Content from garbling non-ASCII.
     encoding = "utf-8" if os.path.exists(path) else "utf-8-sig"
+    directory = os.path.dirname(path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
     with open(path, "a", encoding=encoding) as handle:
         handle.write(block)
     return path
@@ -870,7 +1014,7 @@ def recipes_append(config, title, commands, tags=None):
 
 def jsonl_append(config, title, commands, tags, scripts):
     """Mirrors every recipe in machine-readable form (idea 22)."""
-    path = config.get("jsonl")
+    path = data_path(config, "jsonl")
     if not path:
         return None
     try:
@@ -893,7 +1037,7 @@ def jsonl_append(config, title, commands, tags, scripts):
 
 def recipe_exists(config, commands):
     """True when this exact command set is already stored (idea 19)."""
-    path = config.get("recipes") or DEFAULT_CONFIG["recipes"]
+    path = data_path(config, "recipes")
     if not os.path.isfile(path):
         return False
     try:
@@ -973,7 +1117,106 @@ def save_recipe_flow(commands, config):
 
 # --- fzf --------------------------------------------------------------------
 FZF_HEADER = ("ENTER explain | TAB mark | ^T save | ^O copy | ^P preview | ^R sort")
-SORT_STATE = os.path.join(os.path.dirname(CONFIG_PATH), "sort.state")
+
+
+def legacy_data_sources(script_dir=None, home_dir=None):
+    """[(target-name, old path)] for the one-time data move.
+
+    Old layout: user data partly next to the script (SCRIPT_DIR), partly in
+    ~/.histex. New layout (option A): one root, %APPDATA%\\histex.
+    The roots are injectable so --self-test never touches real user data.
+    """
+    script_dir = script_dir or SCRIPT_DIR
+    home_dir = home_dir or LEGACY_HOME_DIR
+    script = os.path.join(script_dir, "scripts")
+    legacy = [
+        ("saved_recipes.md", os.path.join(script_dir, "saved_recipes.md")),
+        ("recipes.jsonl", os.path.join(script_dir, "recipes.jsonl")),
+        ("history_log.tsv", os.path.join(script_dir, "history_log.tsv")),
+        ("histex_profile.ps1", os.path.join(script_dir, "histex_profile.ps1")),
+        ("sort.state", os.path.join(home_dir, "sort.state")),
+        ("config.json", os.path.join(home_dir, "config.json")),
+    ]
+    return script, legacy
+
+
+def migrate_data(datadir, verbose=False, script_dir=None, home_dir=None):
+    """Copies user data from legacy spots into the data dir (safe).
+
+    Never overwrites an existing target and never deletes an original,
+    so the worst case is a printed warning. Returns (moved, skipped).
+    Writes a migrated.json receipt so the run is idempotent.
+    """
+    moved, skipped = 0, 0
+    ensure_data_dir(datadir)
+    script_legacy, pairs = legacy_data_sources(script_dir, home_dir)
+
+    def _copy_file(name, source):
+        """Copies one legacy file into the data dir. Never overwrites."""
+        target = os.path.join(datadir, name)
+        if not os.path.isfile(source):
+            return 0                        # nothing there, nothing to do
+        if os.path.isfile(target):
+            if verbose:
+                print("[i] already present, kept: %s" % name, file=sys.stderr)
+            return -1                       # already migrated
+        try:
+            with open(source, "rb") as handle:
+                atomic_write(target, "", raw=handle.read())
+            print("[i] migrated %s -> %s" % (source, datadir))
+            return 1
+        except OSError as exc:
+            print("[!] could not migrate %s: %s" % (source, exc),
+                  file=sys.stderr)
+            return 0
+
+    def _copy_tree(name, source):
+        """Copies one legacy directory (never overwrites single files)."""
+        target = os.path.join(datadir, name)
+        if not os.path.isdir(source):
+            return 0
+        moved_files = 0
+        try:
+            os.makedirs(target, exist_ok=True)
+            for entry in sorted(os.listdir(source)):
+                origin = os.path.join(source, entry)
+                final = os.path.join(target, entry)
+                if os.path.isfile(origin) and not os.path.isfile(final):
+                    with open(origin, "rb") as handle:
+                        atomic_write(final, "", raw=handle.read())
+                    moved_files += 1
+            if moved_files:
+                print("[i] migrated %s (%d files) -> %s"
+                      % (source, moved_files, target))
+        except OSError as exc:
+            print("[!] could not migrate %s: %s" % (source, exc),
+                  file=sys.stderr)
+        return moved_files
+
+    for name, source in pairs:
+        result = _copy_file(name, source)
+        if result > 0:
+            moved += result
+        elif result < 0:
+            skipped += 1
+    moved += _copy_tree("scripts", script_legacy)
+    moved += _copy_tree("cache",
+                        os.path.join(home_dir or LEGACY_HOME_DIR, "cache"))
+
+    receipt = os.path.join(datadir, "migrated.json")
+    try:
+        record = {"ts": time.strftime("%Y-%m-%d %H:%M:%S"),
+                  "moved": moved, "skipped": skipped}
+        atomic_write(receipt,
+                     json.dumps(record, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+    return moved, skipped
+
+
+# NOTE: the sort-state constant used to live here (<config-dir>/sort.state).
+# It was removed: the sort state now lives in the data dir - see
+# sort_state_path(). Frozen exes must never write next to the program.
 
 
 def fzf_path():
@@ -995,7 +1238,13 @@ def _quoted(value):
 
 
 def self_command(*extra):
-    """Command line that re-invokes this script (used by reload / preview)."""
+    """Command line that re-invokes this program (used by reload / preview).
+
+    When frozen (exe), sys.executable IS the program - the script path would
+    point at a temp extraction dir that disappears on exit, so it is omitted.
+    """
+    if is_frozen():
+        return " ".join([_quoted(sys.executable)] + list(extra))
     parts = [_quoted(sys.executable), _quoted(os.path.abspath(__file__))]
     return " ".join(parts + list(extra))
 
@@ -1008,17 +1257,16 @@ def list_text(entries):
 def toggle_sort(config):
     """Flips recent <-> freq and remembers it for the next reload (idea 8/13)."""
     current = config.get("sort", "recent")
+    state_path = sort_state_path(config)
     try:
-        if os.path.isfile(SORT_STATE):
-            with open(SORT_STATE, "r", encoding="utf-8") as handle:
+        if os.path.isfile(state_path):
+            with open(state_path, "r", encoding="utf-8") as handle:
                 current = handle.read().strip() or current
     except OSError:
         pass
     new_mode = "freq" if current != "freq" else "recent"
     try:
-        os.makedirs(os.path.dirname(SORT_STATE), exist_ok=True)
-        with open(SORT_STATE, "w", encoding="utf-8") as handle:
-            handle.write(new_mode)
+        atomic_write(state_path, new_mode)
     except OSError:
         pass
     return new_mode
@@ -1129,7 +1377,7 @@ def run_fzf(entries, config, allow_preview=True, prompt=None):
 def parse_recipes(config, text=None):
     """Reads saved markdown recipes into [(title, tags, commands)] (idea 17)."""
     if text is None:
-        path = config.get("recipes") or DEFAULT_CONFIG["recipes"]
+        path = data_path(config, "recipes")
         if not os.path.isfile(path):
             return []
         try:
@@ -1303,17 +1551,24 @@ def stats_mode(config):
 
 
 # --- shell integration (ideas 2 and 23) -------------------------------------
-def profile_snippet():
+def profile_snippet(config=None):
     """PowerShell snippet: histex <-> prompt integration + sidecar log."""
-    log_file = os.path.join(SCRIPT_DIR, "history_log.tsv")
-    python = _quoted(sys.executable)
-    script = os.path.abspath(__file__)
+    root = None
+    if isinstance(config, dict):
+        root = config.get("_datadir")
+    log_file = os.path.join(root or SCRIPT_DIR, "history_log.tsv")
+    if is_frozen():
+        launcher = sys.executable
+    else:
+        python = _quoted(sys.executable)
+        script = os.path.abspath(__file__)
+        launcher = python + ' "' + script + '"'
     lines = [
         "# --- histex integration " + "-" * 52,
         '# 1) Type "histex", pick a command, and it lands on your prompt:',
         "function histex {",
         "    param([Parameter(ValueFromRemainingArguments = $true)]$Rest)",
-        '    $picked = & ' + python + ' "' + script + '" --pick @Rest',
+        '    $picked = & ' + launcher + ' --pick @Rest',
         "    if ($picked) { [Microsoft.PowerShell.PSConsoleReadLine]::Insert($picked) }",
         "}",
         "",
@@ -1333,9 +1588,10 @@ def profile_snippet():
 
 def install_snippets(config):
     """--install-snippets: writes the snippet file, never touches $PROFILE."""
-    path = os.path.join(SCRIPT_DIR, "histex_profile.ps1")
+    path = os.path.join(config.get("_datadir") or SCRIPT_DIR,
+                        "histex_profile.ps1")
     with open(path, "w", encoding="utf-8-sig", newline="") as handle:
-        handle.write(profile_snippet())
+        handle.write(profile_snippet(config))
     profile = run_powershell("$PROFILE").strip() or "$PROFILE"
     print("Snippet written to: %s" % path)
     print("")
@@ -1348,9 +1604,12 @@ def install_snippets(config):
     return 0
 
 
-def sidecar_entries():
+def sidecar_entries(config=None):
     """Reads the sidecar log written by the profile snippet (idea 23)."""
-    path = os.path.join(SCRIPT_DIR, "history_log.tsv")
+    root = None
+    if isinstance(config, dict):
+        root = config.get("_datadir")
+    path = os.path.join(root or SCRIPT_DIR, "history_log.tsv")
     if not os.path.isfile(path):
         return []
     records = []
@@ -1365,11 +1624,11 @@ def sidecar_entries():
     return records
 
 
-def filter_by_sidecar(entries, today=False, here=False):
+def filter_by_sidecar(entries, today=False, here=False, config=None):
     """Keeps only entries logged today / in the current folder (idea 23)."""
     if not (today or here):
         return entries
-    records = sidecar_entries()
+    records = sidecar_entries(config)
     if not records:
         print("[i] no sidecar log yet - run `histex --install-snippets`, add the "
               "line to $PROFILE and open a new terminal.", file=sys.stderr)
@@ -1438,9 +1697,10 @@ def doctor_rows(config):
                         "macOS: pbcopy; Linux: xclip or wl-copy"))
     recipes = parse_recipes(config)
     rows.append(("recipes: %d saved" % len(recipes), True,
-                 config.get("recipes") or DEFAULT_CONFIG["recipes"]))
-    snippet = os.path.join(SCRIPT_DIR, "histex_profile.ps1")
-    log = os.path.join(SCRIPT_DIR, "history_log.tsv")
+                 config.get("recipes") or data_path(config, "recipes")))
+    snippet = os.path.join(config.get("_datadir") or SCRIPT_DIR,
+                           "histex_profile.ps1")
+    log = os.path.join(config.get("_datadir") or SCRIPT_DIR, "history_log.tsv")
     rows.append(("prompt snippet: " + ("installed" if os.path.isfile(log)
                                        else "not active"),
                  True,
@@ -1577,6 +1837,91 @@ def self_test(config):
     check("recipe preview prints the stored commands",
           "ls -la" in preview_recipe_for_test("My title   (1 cmd)",
                                               {"My title   (1 cmd)": ["ls -la"]}))
+    check("data dir is absolute and outside temp-script dirs",
+          os.path.isabs(resolve_data_dir()))
+    check("frozen detection is boolean", isinstance(is_frozen(), bool))
+    import sys as _sys
+    had = getattr(_sys, "frozen", None)
+    try:
+        _sys.frozen = True
+        check("frozen self-command has no script path",
+              ".py" not in self_command("--print-list")
+              and "--print-list" in self_command("--print-list"))
+    finally:
+        if had is None:
+            try:
+                delattr(_sys, "frozen")
+            except AttributeError:
+                pass
+        else:
+            _sys.frozen = had
+    check("script self-command still names the script",
+          sys.executable in self_command("--print-list"))
+
+    sandbox = tempfile.mkdtemp(prefix="histex-test-")
+    try:
+        import shutil as _shutil
+        legacy_script = os.path.join(sandbox, "old-script")
+        legacy_home = os.path.join(sandbox, "old-home")
+        fresh = os.path.join(sandbox, "new-data")
+        os.makedirs(legacy_script)
+        os.makedirs(legacy_home)
+        probe = b"### Date: 2026-01-01 00:00 - Probe\n"
+        with open(os.path.join(legacy_script, "saved_recipes.md"),
+                  "wb") as handle:
+            handle.write(probe)
+        with open(os.path.join(legacy_home, "sort.state"),
+                  "w", encoding="utf-8") as handle:
+            handle.write("freq")
+        moved, skipped = migrate_data(
+            fresh, script_dir=legacy_script, home_dir=legacy_home)
+        check("migration copies the recipe file",
+              moved >= 2 and open(
+                  os.path.join(fresh, "saved_recipes.md"),
+                  "rb").read() == probe)
+        check("migration writes a receipt",
+              os.path.isfile(os.path.join(fresh, "migrated.json")))
+        with open(os.path.join(fresh, "saved_recipes.md"), "ab") as handle:
+            handle.write(b"### extra\n")
+        moved2, skipped2 = migrate_data(
+            fresh, script_dir=legacy_script, home_dir=legacy_home)
+        check("migration never overwrites an existing target",
+              open(os.path.join(fresh, "saved_recipes.md"),
+                   "rb").read() != probe and skipped2 >= 1)
+        check("migration is safe to run twice",
+              isinstance(moved2, int) and isinstance(skipped2, int))
+        override = os.path.join(sandbox, "custom")
+        check("explicit data-dir override is honoured",
+              resolve_data_dir(override) == override)
+        leaf = tempfile.mkdtemp(prefix="histex-leaf-")
+        try:
+            got = data_path({"_datadir": leaf}, "recipes")
+            check("data_path() fills recipes from the data dir",
+                  got == os.path.join(leaf, "saved_recipes.md"))
+            got2 = data_path({"_datadir": leaf, "recipes": "keep.md"},
+                             "recipes")
+            check("data_path() honours an explicit recipes file",
+                  got2 == "keep.md")
+            filled = _fill_data_paths({"_datadir": leaf})
+            check("data paths keep scripts, jsonl and cache together",
+                  filled["scripts_dir"] == os.path.join(leaf, "scripts")
+                  and filled["jsonl"] == os.path.join(leaf, "recipes.jsonl")
+                  and filled["cache_dir"] == os.path.join(leaf, "cache"))
+            state = sort_state_path({"_datadir": leaf})
+            check("sort state lives in the data dir",
+                  state == os.path.join(leaf, "sort.state"))
+        finally:
+            _shutil.rmtree(leaf, ignore_errors=True)
+        tmp_atomic = os.path.join(sandbox, "atomic.txt")
+        atomic_write(tmp_atomic, "hello")
+        leftovers = [name for name in os.listdir(sandbox)
+                     if name.endswith(".tmp")]
+        check("atomic_write leaves no .tmp behind",
+              open(tmp_atomic, encoding="utf-8").read() == "hello"
+              and not leftovers)
+    finally:
+        import shutil as _shutil2
+        _shutil2.rmtree(sandbox, ignore_errors=True)
 
     failures = [item for item in results if not item[1]]
     for name, ok in results:
@@ -1601,7 +1946,12 @@ def build_parser():
     parser.add_argument("--scripts-dir", metavar="DIR", help="where runnable scripts go")
     parser.add_argument("--jsonl", metavar="FILE", help="machine readable recipe log")
     parser.add_argument("--config", metavar="FILE",
-                        help="config file (default: %s)" % CONFIG_PATH)
+                        help="config file (default: <data-dir>/config.json)")
+    parser.add_argument("--data-dir", metavar="DIR",
+                        help="where recipes, scripts, cache and logs live "
+                             "(default: %%APPDATA%%\\histex)")
+    parser.add_argument("--no-migrate", action="store_true",
+                        help="do not copy data from the legacy locations")
     parser.add_argument("--history", metavar="FILE", help="history file to read")
     parser.add_argument("--shell", choices=["auto", "ps5", "ps7", "bash", "zsh"],
                         help="which shell history to read")
@@ -1644,7 +1994,13 @@ def build_parser():
 def main(argv=None):
     setup_console()
     options = build_parser().parse_args(argv)
-    config = load_config(options.config)
+
+    datadir = resolve_data_dir(
+        options.data_dir or os.environ.get("HISTEX_DATA_DIR"))
+    ensure_data_dir(datadir)
+    if not options.no_migrate and not options.toggle_sort:
+        migrate_data(datadir)
+    config = load_config(options.config, datadir=datadir)
 
     for attribute, key in (("recipes", "recipes"), ("scripts_dir", "scripts_dir"),
                            ("jsonl", "jsonl"),
@@ -1667,7 +2023,8 @@ def main(argv=None):
         config["tldr"] = False
 
     if options.init_config:
-        path = write_default_config(options.config or CONFIG_PATH)
+        path = write_default_config(options.config or config["_path"],
+                                    config=config)
         print("[ok] config written to: %s" % path)
         return 0
     if options.install_snippets:
@@ -1705,7 +2062,8 @@ def main(argv=None):
         print("[i] run a few commands in your shell and try again.", file=sys.stderr)
         return 1
     if options.today or options.here:
-        entries = filter_by_sidecar(entries, today=options.today, here=options.here)
+        entries = filter_by_sidecar(entries, today=options.today,
+                                    here=options.here, config=config)
     if not entries:
         print("[i] nothing to show.", file=sys.stderr)
         return 0
