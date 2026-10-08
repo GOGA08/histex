@@ -2,6 +2,20 @@
 
 All notable changes to histex. No browser integration - terminal and files only.
 
+## [2.1] - 2026-10-09
+
+### Changed
+- The picker passes `--scheme=history` only when fzf is 0.33 or newer. An older
+  fzf (Ubuntu 22.04 ships 0.29) used to make the picker fail outright; it now
+  keeps working with the default scoring scheme, and `--doctor` shows the fzf
+  version together with that note.
+- Migration messages go to stderr, so `--json`, `--pick` and `--print-list`
+  stay clean on a first run.
+- `--self-test` grew to 53 offline checks (fzf version parsing and the 0.33
+  minimum).
+- CI: the Go module cache step is disabled - there are no dependencies, so
+  there is no `go.sum` to cache.
+
 ## [2.0] - 2026-10-09
 
 Second generation: the V1 idea (fzf over PowerShell history + cheat.sh + a saved
@@ -35,7 +49,7 @@ Go, so the shipped `histex.exe` needs no runtime.
 - `install.ps1`: one-shot Windows installer (checks the tools, builds and
   starts `histex.exe`, writes the config, runs doctor and self-test). It never
   touches `$PROFILE`.
-- `--self-test`: offline checks (53 and counting).
+- `--self-test`: offline checks (51 and counting).
 
 ### Changed
 - **Rewritten in Go.** The Python single-file script is gone: histex is a Go
@@ -49,11 +63,6 @@ Go, so the shipped `histex.exe` needs no runtime.
   still wins.
 - All user data stays out of the program directory, so a packaged build never
   writes next to the exe.
-- The picker passes `--scheme=history` only when fzf is 0.33 or newer; an older
-  fzf (Ubuntu 22.04 ships 0.29) keeps working with the default scheme, and
-  `--doctor` says so.
-- Migration messages go to stderr, so `--json`, `--pick` and `--print-list`
-  stay clean on a first run.
 - `--doctor` reports the Go runtime instead of Python, and the fzf
   reload/preview callbacks re-invoke the exe instead of `python histex.py`.
 - The preview pane is hidden by default; `CTRL-P` (or `CTRL-/`) toggles it.
