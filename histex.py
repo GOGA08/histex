@@ -18,7 +18,8 @@ the "explain_order" setting): local cache -> PowerShell Get-Help (cmdlets) ->
 local tldr pages -> cheat.sh (network). Get-Help and tldr work offline.
 
 Extra modes:
-  --recipes   browse the saved recipes in fzf
+  --browse    search the saved recipes in fzf (own prompt + command preview)
+  --doctor    check the setup: python, fzf, tldr, history, clipboard
   --clean     delete selected entries from the history file
   --stats     show usage statistics
   --pick      print only the chosen command(s)  (for shell integration)
@@ -35,6 +36,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from urllib import error as urlerror
 from urllib import parse as urlparse
@@ -681,6 +683,33 @@ def preview_text(command, config):
         head, "-" * 24)
 
 
+def recipes_preview(display_line):
+    """Preview for --browse: the recipe's commands, via HISTEX_PREVIEW_MAP.
+
+    recipes_mode writes {display line: commands} as JSON to a temp file and
+    points HISTEX_PREVIEW_MAP at it; each fzf preview call is a fresh process
+    that inherits the variable, so no state is shared beyond that file.
+    """
+    mapping = {}
+    path = os.environ.get("HISTEX_PREVIEW_MAP") or ""
+    if path:
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                loaded = json.load(handle)
+            if isinstance(loaded, dict):
+                mapping = loaded
+        except (OSError, ValueError):
+            mapping = {}
+    commands = mapping.get(display_line)
+    if commands is None:
+        # fzf may trim trailing padding spaces from the {} argument.
+        commands = mapping.get(display_line.strip(), [])
+    lines = [display_line.strip(), "", "-" * 24, ""]
+    lines.extend(commands if commands else ["(no commands stored)"])
+    print("\n".join(lines))
+    return "recipe-preview"
+
+
 def explain(command, config, preview=False):
     """Prints an explanation for one command. Returns the source label."""
     if preview:
@@ -1015,7 +1044,7 @@ def do_clipboard(selected):
     return False
 
 
-def run_fzf(entries, config, allow_preview=True):
+def run_fzf(entries, config, allow_preview=True, prompt=None):
     """Opens the picker. Returns (status, key, selected)."""
     exe = fzf_path()
     if not exe:
@@ -1042,7 +1071,7 @@ def run_fzf(entries, config, allow_preview=True):
         "--layout=reverse",
         "--marker=> ",
         "--pointer=>",
-        "--prompt=histex> ",
+        "--prompt=" + (prompt or "histex> "),
         "--header=" + FZF_HEADER,
         "--header-first",
         "--bind=" + (config.get("reload_key") or "ctrl-r")
@@ -1143,13 +1172,15 @@ def parse_recipes(config, text=None):
 
 
 def recipes_mode(config):
-    """--recipes: search the saved recipes, print and copy one (idea 17)."""
+    """--browse: search the saved recipes, print and copy one (idea 17)."""
     recipes = parse_recipes(config)
     if not recipes:
         print("[i] no recipes yet - save one with CTRL-T first.", file=sys.stderr)
         return 0
     lookup = {}
     display = []
+    mapping = {}
+    map_path = None
     for index, (title, tags, commands) in enumerate(recipes):
         label = title + (("   [%s]" % ", ".join(tags)) if tags else "")
         line = "%s   (%d cmd)" % (label, len(commands))
@@ -1157,8 +1188,35 @@ def recipes_mode(config):
             line += " "
         lookup[line] = index
         display.append(line)
+        mapping[line] = commands
 
-    status, _, selected = run_fzf(display, config, allow_preview=False)
+    status, selected = "cancel", []
+    try:
+        handle = tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", suffix=".histex-preview.json",
+            prefix="histex-", delete=False)
+        json.dump(mapping, handle, ensure_ascii=False)
+        map_path = handle.name
+        handle.close()
+        previous = os.environ.get("HISTEX_PREVIEW_MAP")
+        os.environ["HISTEX_PREVIEW_MAP"] = map_path
+        try:
+            # Own prompt + visible preview: this is the recipe library,
+            # not the history picker - it should never look like plain fzf.
+            local = dict(config)
+            local["preview"] = True
+            status, _, selected = run_fzf(display, local, prompt="recipes> ")
+        finally:
+            if previous is None:
+                del os.environ["HISTEX_PREVIEW_MAP"]
+            else:
+                os.environ["HISTEX_PREVIEW_MAP"] = previous
+    finally:
+        if map_path:
+            try:
+                os.unlink(map_path)     # one short-lived file, never in the repo
+            except OSError:
+                pass
     if status != "ok" or not selected:
         return 0
     index = lookup.get(selected[0])
@@ -1180,7 +1238,8 @@ def clean_mode(config):
     if not path:
         print("[x] no history file found.", file=sys.stderr)
         return 1
-    status, _, selected = run_fzf(entries, config, allow_preview=False)
+    status, _, selected = run_fzf(entries, config, allow_preview=False,
+                                  prompt="clean> ")
     if status != "ok" or not selected:
         return 0
     doomed = set(selected)
@@ -1337,6 +1396,109 @@ def emit_selection(selected, as_json=False):
     return 0
 
 
+# --- doctor: one command that tells you what is broken ----------------------
+def doctor_rows(config):
+    """[(label, ok, detail)] - pure data, so --self-test can check it too."""
+    rows = []
+    rows.append(("python %s" % ".".join(str(part) for part in sys.version_info[:3]),
+                 True, sys.executable))
+    exe = fzf_path()
+    rows.append(("fzf " + (exe or "missing"),
+                 bool(exe), exe or fzf_install_hint()))
+    texe = tldr_path()
+    if texe:
+        rows.append(("tldr " + texe, True, "run `tldr --update` once in a while"))
+    else:
+        rows.append(("tldr missing (optional)",
+                     True, "winget install dbrgn.tealdeer  (or brew / apt)"))
+    label, path = resolve_history(config)
+    if path and os.path.isfile(path):
+        try:
+            _, _, entries = load_history(config)
+            rows.append(("history (%s): %d unique commands" % (label, len(entries)),
+                         True, path))
+        except OSError as exc:
+            rows.append(("history unreadable", False, "%s: %s" % (path, exc)))
+    else:
+        rows.append(("no history file found", False,
+                     "run a few commands in your shell and try again"))
+    clip = None
+    if os.name == "nt":
+        clip = "clip" if shutil.which("clip") else None
+    elif sys.platform == "darwin":
+        clip = "pbcopy" if shutil.which("pbcopy") else None
+    else:
+        for name in ("xclip", "wl-copy"):
+            if shutil.which(name):
+                clip = name
+                break
+    rows.append(("clipboard: " + (clip or "no tool found"),
+                 bool(clip),
+                 clip or "Windows: clip.exe ships with the OS; "
+                        "macOS: pbcopy; Linux: xclip or wl-copy"))
+    recipes = parse_recipes(config)
+    rows.append(("recipes: %d saved" % len(recipes), True,
+                 config.get("recipes") or DEFAULT_CONFIG["recipes"]))
+    snippet = os.path.join(SCRIPT_DIR, "histex_profile.ps1")
+    log = os.path.join(SCRIPT_DIR, "history_log.tsv")
+    rows.append(("prompt snippet: " + ("installed" if os.path.isfile(log)
+                                       else "not active"),
+                 True,
+                 ("sidecar log found: %s" % log)
+                 if os.path.isfile(log)
+                 else ("run `histex --install-snippets`, dot-source %s "
+                       "from $PROFILE, then open a new terminal" % snippet)))
+    return rows
+
+
+def doctor_mode(config):
+    """--doctor: health check with install hints. Exit 1 when broken."""
+    print("histex " + VERSION + "  (no browser - terminal and files only)")
+    print("")
+    rows = doctor_rows(config)
+    bad = 0
+    for label, ok, detail in rows:
+        print("%s  %s" % ("[ok]" if ok else "[x] ", label))
+        print("       %s" % detail)
+    print("")
+    bad = sum(1 for _, ok, _ in rows if not ok)
+    if bad:
+        print("%d problem(s) found - fix the [x] lines above." % bad)
+        return 1
+    print("all good - run `python histex.py` and press CTRL-P for the preview.")
+    return 0
+
+
+def preview_recipe_for_test(display_line, mapping):
+    """Runs recipes_preview() with a temp HISTEX_PREVIEW_MAP (for --self-test)."""
+    previous = os.environ.get("HISTEX_PREVIEW_MAP")
+    map_path = None
+    try:
+        handle = tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", suffix=".histex-preview.json",
+            prefix="histex-test-", delete=False)
+        json.dump(mapping, handle, ensure_ascii=False)
+        map_path = handle.name
+        handle.close()
+        os.environ["HISTEX_PREVIEW_MAP"] = map_path
+        import io
+        from contextlib import redirect_stdout
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            recipes_preview(display_line)
+        return buffer.getvalue()
+    finally:
+        if previous is None:
+            os.environ.pop("HISTEX_PREVIEW_MAP", None)
+        else:
+            os.environ["HISTEX_PREVIEW_MAP"] = previous
+        if map_path:
+            try:
+                os.unlink(map_path)
+            except OSError:
+                pass
+
+
 # --- self test (idea 29) ----------------------------------------------------
 def self_test(config):
     """--self-test: fast, offline checks of the parsing and helper logic."""
@@ -1397,6 +1559,24 @@ def self_test(config):
           (DEFAULT_CONFIG.get("preview_key") or "") == "ctrl-p")
     check("header mentions the preview key",
           "^P" in FZF_HEADER)
+    fake_bash = "#1699999999\ngit status\n#1700000000\nls -la\n"
+    check("bash HISTTIMEFORMAT markers are stripped",
+          entries_from_text(fake_bash, join_continuations=False)
+          == ["git status", "ls -la"])
+    check("zsh extended history is unwrapped",
+          entries_from_text(": 1700000000:0;git status -sb\n",
+                            join_continuations=False) == ["git status -sb"])
+    rows = doctor_rows(DEFAULT_CONFIG)
+    check("doctor returns labelled rows",
+          rows and all(len(row) == 3 for row in rows))
+    check("doctor flags a missing history file",
+          any("no history file" in label for label, ok, _ in
+              doctor_rows(dict(DEFAULT_CONFIG, history="Z:/no-such-file.txt",
+                               shell="auto"))
+              if not ok))
+    check("recipe preview prints the stored commands",
+          "ls -la" in preview_recipe_for_test("My title   (1 cmd)",
+                                              {"My title   (1 cmd)": ["ls -la"]}))
 
     failures = [item for item in results if not item[1]]
     for name, ok in results:
@@ -1447,6 +1627,8 @@ def build_parser():
     parser.add_argument("--stats", action="store_true", help="show usage statistics")
     parser.add_argument("--pick", action="store_true",
                         help="print only the chosen command(s) (shell integration)")
+    parser.add_argument("--doctor", action="store_true",
+                        help="check the setup: tools, history, clipboard, recipes")
     parser.add_argument("--json", action="store_true", help="machine readable output")
     parser.add_argument("--explain", metavar="CMD", help="explain a command and exit")
     parser.add_argument("--preview", metavar="CMD", help=argparse.SUPPRESS)
@@ -1490,12 +1672,17 @@ def main(argv=None):
         return 0
     if options.install_snippets:
         return install_snippets(config)
+    if options.doctor:
+        return doctor_mode(config)
     if options.self_test:
         return self_test(config)
     if options.update_tldr:
         return update_tldr()
     if options.preview is not None:
-        explain(options.preview, config, preview=True)
+        if os.environ.get("HISTEX_PREVIEW_MAP"):
+            recipes_preview(options.preview)
+        else:
+            explain(options.preview, config, preview=True)
         return 0
     if options.explain:
         explain(options.explain, config)
@@ -1528,6 +1715,10 @@ def main(argv=None):
           file=sys.stderr)
     print("    keys: ENTER explain | TAB mark | CTRL-T save | CTRL-O copy | "
           "CTRL-P preview | CTRL-R reload/sort | ESC cancel", file=sys.stderr)
+    recipes = parse_recipes(config)
+    if recipes:
+        print("    recipes: %d saved - `python histex.py --browse` opens the library"
+              % len(recipes), file=sys.stderr)
 
     status, key, selected = run_fzf(entries, config)
     if status == "error":

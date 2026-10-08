@@ -4,8 +4,10 @@ An interactive picker for your shell command history: fuzzy-search the commands
 you already ran, get them explained, and turn the useful ones into saved recipes
 or ready-to-run scripts.
 
-Built for **Windows + PowerShell**, works with **bash/zsh** history too. One
-file, Python standard library only - the only external requirement is
+Built for **Windows + PowerShell**. It also *parses* bash/zsh history files
+(`.bash_history`, `.zsh_history` incl. `#epoch` markers and zsh `: time:0;cmd`
+lines), but only the Windows path is proven on a real machine so far.
+One file, Python standard library only - the only external requirement is
 [fzf](https://github.com/junegunn/fzf).
 
 ```
@@ -43,9 +45,17 @@ browsable, explainable knowledge base:
 ```powershell
 git clone https://github.com/GOGA08/histex.git
 cd histex
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+python histex.py
+```
+
+Manual install is the same steps the script runs:
+
+```powershell
 winget install junegunn.fzf
 winget install dbrgn.tealdeer     # optional but recommended
 tldr --update
+python histex.py --doctor         # checks tools, history, clipboard, recipes
 python histex.py
 ```
 
@@ -70,9 +80,10 @@ the `preview_window` setting.
 ## Modes
 
 ```powershell
-python histex.py                    # interactive picker
+python histex.py                    # interactive picker (histex> prompt)
+python histex.py --doctor           # health check: tools, history, clipboard
 python histex.py --stats            # most used commands and tools
-python histex.py --browse           # search your saved recipes
+python histex.py --browse           # search your saved recipes (recipes> prompt)
 python histex.py --clean            # delete entries from the history (auto backup)
 python histex.py --explain "tar -xzf a.tgz"
 python histex.py --pick             # print only the selection (shell integration)
@@ -109,6 +120,9 @@ contain a secret (`password`, `token`, ...) are never sent to the network.
 ```
 
 Every recipe is also appended to `recipes.jsonl` for scripting.
+
+`--browse` opens the recipes as their own library: a `recipes> ` prompt (never
+the history picker) with a live preview of each recipe's stored commands.
 
 ## Configuration
 
