@@ -36,11 +36,58 @@ browsable, explainable knowledge base:
 
 | | |
 |---|---|
-| Go | 1.27+ - **build only**; the built `histex.exe` needs no runtime |
+| Windows | **just the binary** - `histex.exe` is one self-contained file, no runtime needed |
 | fzf | **required** - `winget install junegunn.fzf` (or `brew install fzf`) |
 | tldr | optional, recommended - `winget install dbrgn.tealdeer`, then `tldr --update` |
+| Go | 1.27+ - only to build from source; not needed to run the binary |
 
 ## Install
+
+### Windows
+
+`histex.exe` is a **single self-contained file** - download it and run it.
+Nothing else has to be installed, and nothing is written next to it (your
+recipes, scripts and cache live in `%APPDATA%\histex`).
+
+**1. Download the binary**
+
+```powershell
+curl.exe -L -o histex.exe https://github.com/GOGA08/histex/releases/latest/download/histex.exe
+```
+
+or open the [releases page](https://github.com/GOGA08/histex/releases) and
+download the `histex.exe` asset.
+
+**2. Install fzf** - histex has no picker of its own, fzf draws the list:
+
+```powershell
+winget install junegunn.fzf
+```
+
+**3. Optional but recommended** - local tldr pages, so explanations work offline:
+
+```powershell
+winget install dbrgn.tealdeer
+tldr --update
+```
+
+**4. Check the setup, then start it:**
+
+```powershell
+.\histex.exe --doctor      # tools, history, clipboard, recipes
+.\histex.exe               # the picker: ENTER explains, CTRL-T saves
+```
+
+To run it simply as `histex` from anywhere, put `histex.exe` in a folder that
+is on your `PATH` (for example `%USERPROFILE%\bin`). Open a **new** terminal
+after the `winget install` lines - that is what refreshes `PATH`.
+
+### Linux / macOS
+
+### Build from source (developers)
+
+Go 1.27+ is needed **only** for building - the result is the same
+self-contained binary.
 
 ```powershell
 git clone https://github.com/GOGA08/histex.git
@@ -50,15 +97,17 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 .\histex.exe
 ```
 
-Manual install is the same steps the script runs:
+`install.ps1` checks fzf and tldr, builds `histex.exe` when it is missing,
+writes the config file and runs `--doctor` plus `--self-test`. It never edits
+`$PROFILE` - that stays your decision. The manual steps it performs are:
 
 ```powershell
 winget install junegunn.fzf
 winget install dbrgn.tealdeer     # optional but recommended
 tldr --update
 go build -o histex.exe .
-.\histex.exe --doctor             # checks tools, history, clipboard, recipes
-.\histex.exe
+.\histex.exe --init-config
+.\histex.exe --doctor
 ```
 
 ## Keys
@@ -109,6 +158,13 @@ local cache -> PowerShell Get-Help -> local tldr pages -> cheat.sh
 `Get-Help` and `tldr` work offline, answers are cached in `%APPDATA%\histex\cache`, and
 `--offline` guarantees nothing leaves your machine. Commands that look like they
 contain a secret (`password`, `token`, ...) are never sent to the network.
+
+`tldr` is the only source you may have to install, and it is the one that
+explains non-PowerShell commands (`tar`, `git`, `docker`) while staying
+offline. Without it histex still explains everything: PowerShell cmdlets come
+from `Get-Help`, the rest from cheat.sh - which needs the network and is
+usually shorter. That is why `--doctor` only warns about a missing `tldr`
+instead of failing, and why it is listed as "optional, recommended".
 
 ## Saving recipes
 
