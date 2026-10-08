@@ -7,14 +7,13 @@ histex_profile.ps1
 *.histex-backup
 config.json
 
-# --- python ----------------------------------------------------------------
-__pycache__/
-*.py[cod]
-.venv/
-venv/
+# --- go / build output -----------------------------------------------------
+/histex
+/histex.exe
+*.exe
+*.test
 build/
 dist/
-*.egg-info/
 
 # --- editors / OS ----------------------------------------------------------
 .vscode/

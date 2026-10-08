@@ -6,10 +6,11 @@
       powershell -ExecutionPolicy Bypass -File .\install.ps1
 
   What it does:
-    1) checks python, fzf and tldr (install hints when missing)
-    2) runs `tldr --update` once (so explanations work offline)
-    3) writes ~/.histex/config.json when there is none
-    4) runs `python histex.py --doctor` and `--self-test`
+    1) checks fzf and tldr (install hints when missing)
+    2) builds histex.exe when it is missing and Go is available
+    3) runs `tldr --update` once (so explanations work offline)
+    4) writes %APPDATA%\histex\config.json when there is none
+    5) runs `histex.exe --doctor` and `--self-test`
   It never edits $PROFILE - that stays your decision.
 #>
 $ErrorActionPreference = 'Stop'
@@ -22,13 +23,6 @@ Write-Output "histex installer"
 Write-Output ""
 
 $failed = $false
-
-if (Test-Tool python) {
-    Write-Output ("[ok] " + (python --version 2>&1))
-} else {
-    Write-Output "[x] python not found - install Python 3.8+ from https://www.python.org/downloads/"
-    $failed = $true
-}
 
 if (Test-Tool fzf) {
     Write-Output ("[ok] fzf " + (fzf --version 2>&1))
@@ -46,6 +40,25 @@ if (Test-Tool tldr) {
     Write-Output "    then:  tldr --update"
 }
 
+$exe = Join-Path $PSScriptRoot 'histex.exe'
+
+if (-not (Test-Path $exe)) {
+    if (Test-Tool go) {
+        Write-Output "[..] building histex.exe ..."
+        & go build -o $exe .
+        if ($LASTEXITCODE -ne 0) {
+            Write-Output "[x] go build failed"
+            $failed = $true
+        }
+    } else {
+        Write-Output "[x] histex.exe not found and go is not installed."
+        Write-Output "    Build it with Go 1.27+ (go build -o histex.exe .) or copy a prebuilt histex.exe here."
+        $failed = $true
+    }
+} else {
+    Write-Output ("[ok] histex.exe (" + (Get-Item $exe).Length + " bytes)")
+}
+
 if ($failed) {
     Write-Output ""
     Write-Output "Fix the [x] lines above, open a new terminal, and run install.ps1 again."
@@ -54,15 +67,15 @@ if ($failed) {
 
 Write-Output ""
 Write-Output "[..] writing default config when missing..."
-python histex.py --init-config 2>$null | Out-Null
+& $exe --init-config 2>$null | Out-Null
 Write-Output ""
 Write-Output "=== doctor ==="
-python histex.py --doctor
+& $exe --doctor
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 Write-Output ""
 Write-Output "=== self-test ==="
-python histex.py --self-test
+& $exe --self-test
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 Write-Output ""
-Write-Output "[ok] installed - run:  python histex.py"
-Write-Output "     optional prompt integration:  python histex.py --install-snippets"
+Write-Output "[ok] installed - run:  .\histex.exe"
+Write-Output "     optional prompt integration:  .\histex.exe --install-snippets"

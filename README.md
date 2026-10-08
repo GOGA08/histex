@@ -7,7 +7,7 @@ or ready-to-run scripts.
 Built for **Windows + PowerShell**. It also *parses* bash/zsh history files
 (`.bash_history`, `.zsh_history` incl. `#epoch` markers and zsh `: time:0;cmd`
 lines), but only the Windows path is proven on a real machine so far.
-One file, Python standard library only - the only external requirement is
+A single Go binary, standard library only - the only external requirement is
 [fzf](https://github.com/junegunn/fzf).
 
 ```
@@ -36,7 +36,7 @@ browsable, explainable knowledge base:
 
 | | |
 |---|---|
-| Python | 3.8+ (no third-party packages) |
+| Go | 1.27+ - **build only**; the built `histex.exe` needs no runtime |
 | fzf | **required** - `winget install junegunn.fzf` (or `brew install fzf`) |
 | tldr | optional, recommended - `winget install dbrgn.tealdeer`, then `tldr --update` |
 
@@ -45,8 +45,9 @@ browsable, explainable knowledge base:
 ```powershell
 git clone https://github.com/GOGA08/histex.git
 cd histex
+go build -o histex.exe .
 powershell -ExecutionPolicy Bypass -File .\install.ps1
-python histex.py
+.\histex.exe
 ```
 
 Manual install is the same steps the script runs:
@@ -55,8 +56,9 @@ Manual install is the same steps the script runs:
 winget install junegunn.fzf
 winget install dbrgn.tealdeer     # optional but recommended
 tldr --update
-python histex.py --doctor         # checks tools, history, clipboard, recipes
-python histex.py
+go build -o histex.exe .
+.\histex.exe --doctor             # checks tools, history, clipboard, recipes
+.\histex.exe
 ```
 
 ## Keys
@@ -80,20 +82,20 @@ the `preview_window` setting.
 ## Modes
 
 ```powershell
-python histex.py                    # interactive picker (histex> prompt)
-python histex.py --doctor           # health check: tools, history, clipboard
-python histex.py --stats            # most used commands and tools
-python histex.py --browse           # search your saved recipes (recipes> prompt)
-python histex.py --clean            # delete entries from the history (auto backup)
-python histex.py --explain "tar -xzf a.tgz"
-python histex.py --pick             # print only the selection (shell integration)
-python histex.py --json             # machine readable output
-python histex.py --sort freq        # most used first
-python histex.py --offline          # never touch the network
-python histex.py --update-tldr      # refresh the local tldr page cache
-python histex.py --install-snippets # prompt integration + time/dir log
-python histex.py --init-config      # write a config file
-python histex.py --self-test        # offline self checks
+.\histex.exe                         # interactive picker (histex> prompt)
+.\histex.exe --doctor                # health check: tools, history, clipboard
+.\histex.exe --stats                 # most used commands and tools
+.\histex.exe --browse                # search your saved recipes (recipes> prompt)
+.\histex.exe --clean                 # delete entries from the history (auto backup)
+.\histex.exe --explain "tar -xzf a.tgz"
+.\histex.exe --pick                  # print only the selection (shell integration)
+.\histex.exe --json                  # machine readable output
+.\histex.exe --sort freq             # most used first
+.\histex.exe --offline               # never touch the network
+.\histex.exe --update-tldr           # refresh the local tldr page cache
+.\histex.exe --install-snippets      # prompt integration + time/dir log
+.\histex.exe --init-config           # write a config file
+.\histex.exe --self-test             # offline self checks
 ```
 
 ## Explanations
@@ -104,7 +106,7 @@ Sources are tried in order (configurable, first hit wins):
 local cache -> PowerShell Get-Help -> local tldr pages -> cheat.sh
 ```
 
-`Get-Help` and `tldr` work offline, answers are cached in `~/.histex/cache`, and
+`Get-Help` and `tldr` work offline, answers are cached in `%APPDATA%\histex\cache`, and
 `--offline` guarantees nothing leaves your machine. Commands that look like they
 contain a secret (`password`, `token`, ...) are never sent to the network.
 
@@ -126,7 +128,7 @@ the history picker) with a live preview of each recipe's stored commands.
 
 ## Configuration
 
-`--init-config` writes `~/.histex/config.json`:
+`--init-config` writes `%APPDATA%\histex\config.json`:
 
 | key | meaning |
 |---|---|

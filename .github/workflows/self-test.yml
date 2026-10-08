@@ -9,14 +9,15 @@ jobs:
     strategy:
       matrix:
         os: [windows-latest, ubuntu-latest]
-        python-version: ["3.11", "3.12"]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-go@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          go-version-file: go.mod
+      - name: vet
+        run: go vet ./...
       - name: compile
-        run: python -m py_compile histex.py
+        run: go build ./...
       - name: offline self-test
-        run: python histex.py --self-test
+        run: go run . --self-test

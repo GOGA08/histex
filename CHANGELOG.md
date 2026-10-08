@@ -23,6 +23,17 @@ All notable changes to histex. No browser integration - terminal and files only.
   still wins.
 - `--self-test` grew to 51 offline checks (migration, data paths, atomic
   writes, frozen self-command).
+- **Rewritten in Go.** The Python single-file script is gone: histex is now a
+  Go program (standard library only) with the same CLI, the same data dir and
+  byte-for-byte compatible output. No Python runtime is needed - the built
+  `histex.exe` is self-contained, and fzf stays the only required tool.
+- `--doctor` now reports the Go runtime and the exe path, and the fzf
+  reload/preview callbacks re-invoke the exe instead of `python histex.py`.
+- `README.md`, `install.ps1` and the CI workflow build and run the Go binary
+  (`go vet`, `go build`, `histex --self-test`) instead of the Python script.
+
+### Removed
+- `histex.py` and the Python tooling (`__pycache__`, the `py_compile` CI step).
 
 ## [2.0] - 2026-10-08
 
