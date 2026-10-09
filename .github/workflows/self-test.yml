@@ -11,16 +11,26 @@ jobs:
         os: [windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: false
+      - name: gofmt
+        shell: bash
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "these files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+          echo "all Go files are formatted"
       - name: vet
         run: go vet ./...
-      - name: compile
-        run: go build ./...
       - name: unit tests
         run: go test ./...
-      - name: offline self-test
-        run: go run . --self-test
+      - name: build the binary once
+        run: go build -o histex.exe -trimpath .
+      - name: offline self-test on that artifact (not a rebuild)
+        run: ./histex.exe --self-test

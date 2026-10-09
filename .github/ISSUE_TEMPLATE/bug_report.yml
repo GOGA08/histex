@@ -1,0 +1,55 @@
+name: Bug report
+description: Something does not work as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Filling this in saves a round trip.
+        Questions and ideas belong in Discussions rather than here.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Please also say what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. run `histex --browse`
+        2. press CTRL-T
+        3. the title prompt never appears
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `histex --doctor`
+      description: It lists the runtime, fzf, tldr, the history file and the data dir.
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: histex version
+      description: "`histex --version`, for example: histex 2.3"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: Windows 11 24H2, Ubuntu 24.04, macOS 15 ...
+    validations:
+      required: true
+  - type: input
+    id: fzf
+    attributes:
+      label: fzf version
+      description: "`fzf --version` - the release bundles 0.74.4; 0.33+ is required for history ranking"
+    validations:
+      required: false

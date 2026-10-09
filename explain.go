@@ -372,6 +372,12 @@ func recipesPreview(displayLine string) string {
 	return "recipe-preview"
 }
 
+// reportSource says which source produced the answer. It goes to stderr so the
+// explanation itself stays pipeable, and --preview never reaches this point.
+func reportSource(source string) {
+	errLine("[i] source: %s", source)
+}
+
 // explain is explain(): prints an explanation for one command.
 func explain(command string, cfg *Config, preview bool) string {
 	if preview {
@@ -434,6 +440,7 @@ func explain(command string, cfg *Config, preview bool) string {
 			outLine("")
 			outLine("%s", strings.TrimSpace(text))
 			explainTail(command, cfg)
+			reportSource(source)
 			return source
 		}
 	}
@@ -443,6 +450,7 @@ func explain(command string, cfg *Config, preview bool) string {
 		outLine("")
 		outLine("%s", localText)
 		explainTail(command, cfg)
+		reportSource("local(thin)")
 		return "local(thin)"
 	}
 

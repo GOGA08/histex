@@ -295,18 +295,22 @@ func loadConfig(path string, datadir string) *Config {
 		raw, err := os.ReadFile(path)
 		if err != nil {
 			errLine("[!] ignoring %s: %s", path, err)
-		} else if err := json.Unmarshal([]byte(decodeText(raw, true)), cfg); err != nil {
-			errLine("[!] ignoring %s: %s", path, err)
+		} else {
+			text := decodeText(raw, true)
+			if err := json.Unmarshal([]byte(text), cfg); err != nil {
+				errLine("[!] ignoring %s: %s", path, err)
+			}
+			warnUnknownConfigKeys(text)
 		}
 	}
 	cfg.Path = path
 	return fillDataPaths(cfg)
 }
 
-// configJSON serialises the config exactly like json.dumps(indent=2), in the
-// same key order, including the appended snippet/sidecar keys.
-func configJSON(cfg *Config) string {
-	pairs := jobject{
+// configPairs lists every setting in the order --init-config writes it. It is
+// also the set of keys a config file is allowed to contain.
+func configPairs(cfg *Config) jobject {
+	return jobject{
 		{"recipes", cfg.Recipes},
 		{"scripts_dir", cfg.ScriptsDir},
 		{"jsonl", cfg.JSONL},
@@ -333,7 +337,42 @@ func configJSON(cfg *Config) string {
 		{"snippet", cfg.Snippet},
 		{"sidecar", cfg.Sidecar},
 	}
-	return pyJSON(pairs, "  ", 0) + "\n"
+}
+
+// configJSON serialises the config exactly like json.dumps(indent=2), in the
+// same key order, including the appended snippet/sidecar keys.
+func configJSON(cfg *Config) string {
+	return pyJSON(configPairs(cfg), "  ", 0) + "\n"
+}
+
+// knownConfigKeys is the set of settings histex understands, taken from the
+// same object --init-config writes, so the two cannot disagree.
+func knownConfigKeys() map[string]bool {
+	known := map[string]bool{}
+	for _, pair := range configPairs(defaultConfig()) {
+		known[pair.key] = true
+	}
+	return known
+}
+
+// warnUnknownConfigKeys reports misspelled settings instead of dropping them
+// silently. The values themselves are ignored either way, exactly as before.
+func warnUnknownConfigKeys(text string) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(text), &raw); err != nil {
+		return
+	}
+	known := knownConfigKeys()
+	unknown := make([]string, 0, len(raw))
+	for key := range raw {
+		if !known[key] {
+			unknown = append(unknown, key)
+		}
+	}
+	sort.Strings(unknown)
+	for _, key := range unknown {
+		errLine("[!] ignoring unknown config key %q", key)
+	}
 }
 
 // writeDefaultConfig is write_default_config(): used by --init-config.

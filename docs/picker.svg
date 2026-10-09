@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="780" height="196" viewBox="0 0 780 196" role="img" aria-label="The histex picker: a header, the histex> prompt with the query docker, and three matching commands">
+  <rect x="1" y="1" width="778" height="194" rx="6" fill="#1c1c22" stroke="#3f3f4a"/>
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="13">
+    <text x="18" y="30" fill="#8a8a99">ENTER explain | TAB mark | ^T save | ^O copy | ^P preview | ^R sort</text>
+    <line x1="12" y1="42" x2="768" y2="42" stroke="#2f2f39"/>
+    <text x="18" y="68" fill="#b4b4c2">
+      <tspan fill="#98c379">histex&gt; </tspan><tspan fill="#e8e8ef">docker</tspan>
+    </text>
+    <text x="762" y="68" fill="#8a8a99" text-anchor="end">663/663</text>
+    <rect x="10" y="80" width="760" height="24" rx="3" fill="#2b2b36"/>
+    <text x="18" y="97" fill="#b4b4c2">
+      <tspan fill="#61afef">&gt; </tspan><tspan fill="#e8e8ef">docker compose up -d</tspan>
+    </text>
+    <text x="18" y="121" fill="#b4b4c2">  docker ps -a</text>
+    <text x="18" y="145" fill="#b4b4c2">  docker system prune -af</text>
+    <text x="18" y="175" fill="#5f5f6d">TAB marks several, CTRL-T saves them as a recipe, ENTER explains</text>
+  </g>
+</svg>

@@ -1,0 +1,23 @@
+name: Feature request
+description: Suggest a change, a mode or an improvement
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe the workflow that is awkward today, not the implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like histex to do?
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: |
+        Keep in mind that histex stays a single Go binary with no dependencies,
+        and fzf is its only UI. Anything that needs a third-party module or a
+        TUI of its own is unlikely to be accepted.

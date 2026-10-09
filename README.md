@@ -10,6 +10,11 @@ lines), but only the Windows path is proven on a real machine so far.
 A single Go binary, standard library only. fzf draws the picker and the Windows
 release ships a matching build of it, so nothing has to be installed.
 
+![the histex picker](docs/picker.svg)
+
+<details>
+<summary>Text-only version of the same screen</summary>
+
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │ ENTER explain | TAB mark | ^T save | ^O copy | ^P preview  663/663│
@@ -19,6 +24,8 @@ release ships a matching build of it, so nothing has to be installed.
 │   docker system prune -af                                           │
 └─────────────────────────────────────────────────────────────────────┘
 ```
+
+</details>
 
 ## Why
 
@@ -174,6 +181,14 @@ tldr --update
 go build -o histex.exe .
 .\histex.exe --init-config
 .\histex.exe --doctor
+```
+
+While working on the code:
+
+```powershell
+gofmt -l .        # must print nothing (CI enforces it)
+go vet ./...
+go test ./...     # the same offline checks as --self-test
 ```
 
 ## Keys
