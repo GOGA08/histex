@@ -36,12 +36,6 @@ func exeDir() string {
 	return filepath.Dir(exe)
 }
 
-// isFrozen mirrors the Python helper. A compiled binary always runs from its
-// own executable, so this is always true in the Go port.
-func isFrozen() bool {
-	return true
-}
-
 // baseRoots mirrors base_roots(): (appdata_root, script_dir).
 func baseRoots() (string, string) {
 	return os.Getenv("APPDATA"), scriptDir

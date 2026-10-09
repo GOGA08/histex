@@ -82,6 +82,9 @@ func compileSearch(pattern string) *regexp.Regexp {
 	compiled, err := regexp.Compile(key)
 	if err != nil {
 		regexBroken[key] = true
+		// Go's regexp is RE2: no lookbehind and no backreferences. Say so once
+		// per pattern instead of silently ignoring a config entry.
+		errLine("[!] ignoring the pattern %q: %s", pattern, err)
 		return nil
 	}
 	regexCache[key] = compiled
@@ -252,22 +255,15 @@ func countEntries(entries []string) map[string]int {
 // Python's stable ordering (first-seen wins a tie).
 func orderedCounts(entries []string) []countPair {
 	counts := countEntries(entries)
-	order := []string{}
+	seen := make(map[string]bool, len(counts))
+	order := make([]string, 0, len(counts))
 	for _, entry := range entries {
 		key := normalizeEntry(entry)
-		if _, seen := counts[key]; !seen {
+		if seen[key] {
 			continue
 		}
-		duplicate := false
-		for _, existing := range order {
-			if existing == key {
-				duplicate = true
-				break
-			}
-		}
-		if !duplicate {
-			order = append(order, key)
-		}
+		seen[key] = true
+		order = append(order, key)
 	}
 	pairs := make([]countPair, 0, len(order))
 	for _, key := range order {
@@ -373,10 +369,11 @@ func cacheGet(cfg *Config, key string) string {
 	return text
 }
 
-// cachePut is cache_put().
+// cachePut is cache_put(): best effort. A missing cache entry only costs a
+// lookup, so a failed write must not interrupt the user.
 func cachePut(cfg *Config, key string, body string) {
 	if !cfg.Cache || body == "" {
 		return
 	}
-	atomicWrite(cachePath(cfg, key), body)
+	_ = atomicWrite(cachePath(cfg, key), body)
 }

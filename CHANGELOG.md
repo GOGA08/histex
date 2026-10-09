@@ -2,6 +2,24 @@
 
 All notable changes to histex. No browser integration - terminal and files only.
 
+## [Unreleased]
+
+### Added
+- The Windows release also ships `fzf.exe` (fzf 0.74.4, MIT - the license text
+  is attached as `fzf-LICENSE.txt`). histex prefers an fzf sitting next to
+  `histex.exe`, so downloading the release needs no `winget install`.
+
+### Changed
+- A config pattern that Go's regexp cannot compile (lookbehind, backreferences)
+  is now reported on stderr instead of being dropped silently.
+- An unreadable history file now prints `[x] could not read the history file:
+  ...` and exits 1 in `--stats`, `--clean` and the picker, and a failed
+  sort-state write is reported on stderr.
+- `--stats` counts entries in a single pass (a map plus a slice) instead of
+  rescanning the list for every entry.
+- The `fzf --version` probe is cached for the process, and the leftover
+  `is_frozen()` helper (always true in a compiled binary) is gone.
+
 ## [2.1] - 2026-10-09
 
 ### Changed

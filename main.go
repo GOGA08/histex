@@ -273,7 +273,11 @@ func run() int {
 		return cleanMode(cfg)
 	}
 
-	label, path, entries, _ := loadHistory(cfg, true)
+	label, path, entries, err := loadHistory(cfg, true)
+	if err != nil {
+		errLine("[x] could not read the history file: %s", err)
+		return 1
+	}
 	if path == "" {
 		errLine("[x] no history file found. Looked in:")
 		for _, source := range historyCandidates() {

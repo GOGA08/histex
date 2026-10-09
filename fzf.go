@@ -15,8 +15,15 @@ import (
 // FZF_HEADER - the one line pinned on top of the picker.
 const fzfHeader = "ENTER explain | TAB mark | ^T save | ^O copy | ^P preview | ^R sort"
 
-// fzfPath is fzf_path().
+// fzfPath is fzf_path(). A copy next to histex.exe wins over PATH: the Windows
+// release ships one, so histex needs no separate fzf install.
 func fzfPath() string {
+	for _, name := range []string{"fzf.exe", "fzf"} {
+		candidate := filepath.Join(scriptDir, name)
+		if isFile(candidate) {
+			return candidate
+		}
+	}
 	return lookWhich("fzf")
 }
 
@@ -56,8 +63,20 @@ func parseFzfVersion(text string) (fzfInfo, bool) {
 	return fzfInfo{version: number, major: major, minor: minor}, true
 }
 
-// fzfVersion asks the fzf binary for its version.
+// fzfVersion asks the fzf binary for its version. Probing costs one extra
+// process (~10 ms) and histex runs are short, so the answer is cached for the
+// rest of this process - at most one probe per run.
+var (
+	fzfProbeDone bool
+	fzfProbeInfo fzfInfo
+	fzfProbeOK   bool
+)
+
 func fzfVersion(exe string) (fzfInfo, bool) {
+	if fzfProbeDone {
+		return fzfProbeInfo, fzfProbeOK
+	}
+	fzfProbeDone = true
 	cmd := exec.Command(exe, "--version")
 	var out bytes.Buffer
 	cmd.Stdout = &out
@@ -65,7 +84,8 @@ func fzfVersion(exe string) (fzfInfo, bool) {
 	if err := cmd.Run(); err != nil {
 		return fzfInfo{}, false
 	}
-	return parseFzfVersion(out.String())
+	fzfProbeInfo, fzfProbeOK = parseFzfVersion(out.String())
+	return fzfProbeInfo, fzfProbeOK
 }
 
 // executablePath is what self_command() used as sys.executable.
@@ -86,8 +106,8 @@ func quoted(value string) string {
 }
 
 // selfCommand is self_command(): the line that re-invokes this program for
-// fzf's reload / preview binds. A compiled binary is always its own exe, so
-// the script path the Python version had to add when not frozen is omitted.
+// fzf's reload / preview binds. A Go binary is always its own executable, so
+// there is no "script or frozen exe" branch to make: the exe path is enough.
 func selfCommand(extra ...string) string {
 	parts := append([]string{quoted(executablePath())}, extra...)
 	return strings.Join(parts, " ")
@@ -114,7 +134,10 @@ func toggleSort(cfg *Config) string {
 	if current == "freq" {
 		newMode = "recent"
 	}
-	atomicWrite(statePath, newMode)
+	if err := atomicWrite(statePath, newMode); err != nil {
+		// stdout may feed fzf (the reload bind), so this goes to stderr.
+		errLine("[!] could not save the sort state: %s", err)
+	}
 	return newMode
 }
 
@@ -125,7 +148,11 @@ func printList(cfg *Config, doToggle bool) []string {
 		local.Sort = toggleSort(cfg)
 		cfg = &local
 	}
-	_, _, entries, _ := loadHistory(cfg, true)
+	_, _, entries, err := loadHistory(cfg, true)
+	if err != nil {
+		// stdout feeds fzf, so the complaint has to go to stderr.
+		errLine("[!] could not read the history: %s", err)
+	}
 	outRaw(listText(entries))
 	return entries
 }

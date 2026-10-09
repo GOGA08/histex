@@ -20,7 +20,11 @@ func rootOrScriptDir(cfg *Config) string {
 
 // cleanMode is clean_mode(): --clean deletes selected history entries.
 func cleanMode(cfg *Config) int {
-	_, path, entries, _ := loadHistory(cfg, false)
+	_, path, entries, err := loadHistory(cfg, false)
+	if err != nil {
+		errLine("[x] could not read the history file: %s", err)
+		return 1
+	}
 	if path == "" {
 		errLine("[x] no history file found.")
 		return 1
@@ -67,7 +71,11 @@ func cleanMode(cfg *Config) int {
 
 // statsMode is stats_mode(): --stats shows the usage statistics.
 func statsMode(cfg *Config) int {
-	label, path, raw, _ := rawEntries(cfg, true)
+	label, path, raw, err := rawEntries(cfg, true)
+	if err != nil {
+		errLine("[x] could not read the history file: %s", err)
+		return 1
+	}
 	if path == "" {
 		errLine("[x] no history file found.")
 		return 1

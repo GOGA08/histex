@@ -33,7 +33,17 @@ jobs:
             throw "histex.exe reports $reported but the tag is $version"
           }
           Write-Output "[ok] histex.exe reports $reported"
-      - name: publish the release and attach histex.exe
+      - name: fetch fzf so the release needs no separate install
+        shell: pwsh
+        run: |
+          $fzfVersion = "0.74.4"
+          $base = "https://github.com/junegunn/fzf/releases/download/v$fzfVersion"
+          Invoke-WebRequest -Uri "$base/fzf-$fzfVersion-windows_amd64.zip" -OutFile fzf.zip
+          Expand-Archive -Path fzf.zip -DestinationPath . -Force
+          Remove-Item fzf.zip
+          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/junegunn/fzf/v$fzfVersion/LICENSE" -OutFile fzf-LICENSE.txt
+          .\fzf.exe --version
+      - name: publish the release and attach histex.exe plus the bundled fzf
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -43,4 +53,4 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             gh release create $tag --title "histex $tag" --generate-notes
           }
-          gh release upload $tag histex.exe --clobber
+          gh release upload $tag histex.exe fzf.exe fzf-LICENSE.txt --clobber

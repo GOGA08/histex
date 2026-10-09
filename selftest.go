@@ -152,6 +152,17 @@ func selfTest(cfg *Config) int {
 	check("--scheme=history needs fzf 0.33 or newer",
 		!fzfOld.supportsHistoryScheme() && fzfNew.supportsHistoryScheme() &&
 			parsed.supportsHistoryScheme())
+	savedScriptDir := scriptDir
+	if probeDir, probeErr := os.MkdirTemp("", "histex-fzf-"); probeErr == nil {
+		bundled := filepath.Join(probeDir, "fzf.exe")
+		os.WriteFile(bundled, []byte("stub"), 0o666)
+		scriptDir = probeDir
+		check("a bundled fzf next to the exe wins over PATH", fzfPath() == bundled)
+		scriptDir = savedScriptDir
+		os.RemoveAll(probeDir)
+	} else {
+		check("a bundled fzf next to the exe wins over PATH", false)
+	}
 	check("explain order includes the local tldr source",
 		containsString(defaultConfig().ExplainOrder, "tldr"))
 	disabled := *defaultConfig()
@@ -212,12 +223,14 @@ func selfTest(cfg *Config) int {
 		}), "ls -la"))
 	check("data dir is absolute and outside temp-script dirs",
 		filepath.IsAbs(resolveDataDir("")))
-	check("frozen detection is boolean", isFrozen())
-	check("frozen self-command has no script path",
-		!strings.Contains(selfCommand("--print-list"), ".py") &&
-			strings.Contains(selfCommand("--print-list"), "--print-list"))
-	check("script self-command still names the script",
-		strings.Contains(selfCommand("--print-list"), executablePath()))
+	callback := selfCommand("--print-list", "--toggle-sort")
+	check("fzf callbacks quote the executable",
+		strings.HasPrefix(callback, "\"") &&
+			strings.Contains(callback, executablePath()))
+	check("fzf callbacks point at the exe, not at source files",
+		!strings.Contains(callback, ".py") && !strings.Contains(callback, ".go") &&
+			strings.Contains(callback, "--print-list") &&
+			strings.Contains(callback, "--toggle-sort"))
 
 	sandbox, err := os.MkdirTemp("", "histex-test-")
 	if err == nil {

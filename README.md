@@ -7,8 +7,8 @@ or ready-to-run scripts.
 Built for **Windows + PowerShell**. It also *parses* bash/zsh history files
 (`.bash_history`, `.zsh_history` incl. `#epoch` markers and zsh `: time:0;cmd`
 lines), but only the Windows path is proven on a real machine so far.
-A single Go binary, standard library only - the only external requirement is
-[fzf](https://github.com/junegunn/fzf).
+A single Go binary, standard library only. fzf draws the picker and the Windows
+release ships a matching build of it, so nothing has to be installed.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -37,7 +37,7 @@ browsable, explainable knowledge base:
 | | |
 |---|---|
 | Windows | **just the binary** - `histex.exe` is one self-contained file, no runtime needed |
-| fzf | **required** - `winget install junegunn.fzf` (or `brew install fzf`) |
+| fzf | **required** - ships in the Windows release, or `winget install junegunn.fzf` |
 | tldr | optional, recommended - `winget install dbrgn.tealdeer`, then `tldr --update` |
 | Go | 1.27+ - only to build from source; not needed to run the binary |
 
@@ -45,11 +45,11 @@ browsable, explainable knowledge base:
 
 ### Windows
 
-`histex.exe` is a **single self-contained file** - download it and run it.
-Nothing else has to be installed, and nothing is written next to it (your
+`histex.exe` is a **self-contained file** - download it, put fzf next to it,
+run it. Nothing gets installed, and nothing is written next to them (your
 recipes, scripts and cache live in `%APPDATA%\histex`).
 
-**1. Download the binary**
+**1. Download histex.exe**
 
 ```powershell
 curl.exe -L -o histex.exe https://github.com/GOGA08/histex/releases/latest/download/histex.exe
@@ -58,11 +58,17 @@ curl.exe -L -o histex.exe https://github.com/GOGA08/histex/releases/latest/downl
 or open the [releases page](https://github.com/GOGA08/histex/releases) and
 download the `histex.exe` asset.
 
-**2. Install fzf** - histex has no picker of its own, fzf draws the list:
+**2. Download fzf next to it** - histex has no picker of its own, fzf draws the
+list, and the same release ships a matching build (fzf 0.74.4, MIT - the
+license text is attached as `fzf-LICENSE.txt`):
 
 ```powershell
-winget install junegunn.fzf
+curl.exe -L -o fzf.exe https://github.com/GOGA08/histex/releases/latest/download/fzf.exe
 ```
+
+histex prefers an `fzf.exe` sitting next to it, so this works even when fzf is
+not on your `PATH`. If you already have fzf, or prefer a managed install, skip
+this step: `winget install junegunn.fzf` (or `scoop install fzf`).
 
 **3. Optional but recommended** - local tldr pages, so explanations work offline:
 
@@ -78,9 +84,9 @@ tldr --update
 .\histex.exe               # the picker: ENTER explains, CTRL-T saves
 ```
 
-To run it simply as `histex` from anywhere, put `histex.exe` in a folder that
-is on your `PATH` (for example `%USERPROFILE%\bin`). Open a **new** terminal
-after the `winget install` lines - that is what refreshes `PATH`.
+To run it simply as `histex` from anywhere, put `histex.exe` and `fzf.exe` in
+a folder that is on your `PATH` (for example `%USERPROFILE%\bin`). Open a
+**new** terminal after a `winget install` - that is what refreshes `PATH`.
 
 ### Linux / macOS
 
