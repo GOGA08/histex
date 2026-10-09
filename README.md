@@ -249,16 +249,17 @@ off with `"toolhelp": false`, or drop it from `explain_order`. A `config.json`
 you wrote earlier keeps its own order - add `toolhelp` there (before `cheat`) to
 switch the new source on.
 
-`Get-Help` and `tldr` work offline, answers are cached in `%APPDATA%\histex\cache`, and
-`--offline` guarantees nothing leaves your machine. Commands that look like they
-contain a secret (`password`, `token`, ...) are never sent to the network.
+`Get-Help`, `tldr` and `toolhelp` work offline, answers are cached in
+`%APPDATA%\histex\cache`, and `--offline` guarantees nothing leaves your
+machine. Commands that look like they contain a secret (`password`, `token`,
+...) are never sent to the network.
 
-`tldr` is the only source you may have to install, and it is the one that
-explains non-PowerShell commands (`tar`, `git`, `docker`) while staying
-offline. Without it histex still explains everything: PowerShell cmdlets come
-from `Get-Help`, the rest from cheat.sh - which needs the network and is
-usually shorter. That is why `--doctor` only warns about a missing `tldr`
-instead of failing, and why it is listed as "optional, recommended".
+`tldr` is the one source you may want to install: its pages are hand-written
+and much friendlier than a raw `--help` dump for non-PowerShell commands
+(`tar`, `git`, `docker`). Without it histex still explains everything -
+PowerShell cmdlets from `Get-Help`, other tools from their own `--help`, the
+rest from cheat.sh (network). That is why `--doctor` only warns about a missing
+`tldr` instead of failing, and why it is listed as "optional, recommended".
 
 ## Saving recipes
 
