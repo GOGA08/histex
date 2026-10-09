@@ -2,6 +2,26 @@
 
 All notable changes to histex. No browser integration - terminal and files only.
 
+## [2.3] - 2026-10-09
+
+### Added
+- Prebuilt binaries for Linux (amd64, arm64) and macOS (arm64, amd64) next to
+  `histex.exe`. The release workflow builds and self-tests them on each
+  platform, and the README documents the download, `chmod +x`, fzf per platform
+  and the Windows-only sidecar log.
+- `SHA256SUMS` on every release, so a download can be verified with
+  `Get-FileHash`, `sha256sum` or `shasum -a 256`.
+- Package manifests: `packaging/scoop/histex.json` (installs `histex.exe` and
+  pulls fzf from the main bucket) and `packaging/winget/` for a later
+  microsoft/winget-pkgs submission - the steps live in `packaging/README.md`.
+
+### Changed
+- The release workflow is a matrix (windows / ubuntu / macos): every runner
+  builds its own binaries, self-tests the native one and checks that the
+  reported version matches the tag before anything is published.
+- `go test ./...` runs the same check list as `histex --self-test` (they can no
+  longer drift apart), and CI runs it on Windows and Ubuntu.
+
 ## [2.2] - 2026-10-09
 
 ### Added
