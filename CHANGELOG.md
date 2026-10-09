@@ -2,6 +2,34 @@
 
 All notable changes to histex. No browser integration - terminal and files only.
 
+## [Unreleased]
+
+### Added
+- fish history support: `$XDG_DATA_HOME/fish/fish_history` (default
+  `~/.local/share/fish/fish_history`) is detected like the other shells and
+  parsed as the YAML fish writes it, block form included, so multi-line
+  commands survive. `--shell fish` picks it explicitly.
+- `--install-snippets` writes `histex_profile.sh` on Linux/macOS: a `histex`
+  picker function for bash and zsh (with the `bind -x` line for bash) plus a
+  `PROMPT_COMMAND` / `precmd` hook that appends to the same `history_log.tsv`
+  the PowerShell snippet writes - so `--today` and `--here` now work off
+  Windows too.
+- New explanation source `toolhelp`: the tool's own `--help` (`tar -xzf a.tgz`
+  -> `tar --help`), offline, capped at 60 lines, 5 second timeout, no stdin and
+  the pagers forced off. It is in the default `explain_order` between the local
+  tldr pages and cheat.sh, and `"toolhelp": false` turns it off.
+- `--stats --since WINDOW` counts the sidecar log instead of the history file:
+  `90m`, `24h`, `7d`, `4w` or a date like `2026-10-01`.
+- `--restore` copies the `.histex-backup` that `--clean` writes back over the
+  history file, and says so when there is no backup to restore.
+- `--stats` also reports whether `toolhelp` is on.
+
+### Changed
+- The default `explain_order` gained `toolhelp`; a config file that names its
+  own order keeps it, so add `toolhelp` there to switch the new source on.
+- Seven more self checks (60 total), plus `go test` table tests for the fish
+  parser, the `--since` parser and the tool-help query.
+
 ## [2.3] - 2026-10-09
 
 ### Added

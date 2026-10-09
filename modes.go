@@ -3,9 +3,11 @@ package main
 // modes.go - --clean, --stats, the sidecar log and the prompt integration.
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -69,23 +71,51 @@ func cleanMode(cfg *Config) int {
 	return 0
 }
 
-// statsMode is stats_mode(): --stats shows the usage statistics.
-func statsMode(cfg *Config) int {
-	label, path, raw, err := rawEntries(cfg, true)
-	if err != nil {
-		errLine("[x] could not read the history file: %s", err)
-		return 1
+// statsMode is stats_mode(): --stats shows the usage statistics. A window
+// (--since) counts the sidecar log instead, because that is the only source
+// with timestamps.
+func statsMode(cfg *Config, since string) int {
+	entries := []string{}
+	if since != "" {
+		cutoff, err := parseSince(since)
+		if err != nil {
+			errLine("[x] --since: %s", err)
+			return 2
+		}
+		records := sidecarEntries(cfg)
+		if len(records) == 0 {
+			errLine("[x] --since needs the sidecar log, and there is none yet.")
+			errLine("    PowerShell: run `histex --install-snippets`; " +
+				"bash/zsh: source histex_profile.sh.")
+			return 1
+		}
+		for _, record := range records {
+			when, err := time.ParseInLocation(sidecarTimeLayout, record.when, time.Local)
+			if err != nil || when.Before(cutoff) {
+				continue
+			}
+			entries = append(entries, record.command)
+		}
+		outLine("sidecar log  : %d records, %d of them since %s",
+			len(records), len(entries), since)
+	} else {
+		label, path, raw, err := rawEntries(cfg, true)
+		if err != nil {
+			errLine("[x] could not read the history file: %s", err)
+			return 1
+		}
+		if path == "" {
+			errLine("[x] no history file found.")
+			return 1
+		}
+		entries = raw
+		outLine("history file : %s   (%s)", path, label)
 	}
-	if path == "" {
-		errLine("[x] no history file found.")
-		return 1
-	}
-	unique := dedupEntries(raw)
-	outLine("history file : %s   (%s)", path, label)
-	outLine("entries      : %d total, %d unique", len(raw), len(unique))
+	unique := dedupEntries(entries)
+	outLine("entries      : %d total, %d unique", len(entries), len(unique))
 	outLine("")
 	outLine("top 15 commands:")
-	for index, pair := range orderedCounts(raw) {
+	for index, pair := range orderedCounts(entries) {
 		if index >= 15 {
 			break
 		}
@@ -93,7 +123,7 @@ func statsMode(cfg *Config) int {
 	}
 	tools := map[string]int{}
 	toolOrder := []string{}
-	for _, entry := range raw {
+	for _, entry := range entries {
 		name := ""
 		if fields := strings.Fields(entry); len(fields) > 0 {
 			name = strings.ToLower(normalizeToken(fields[0]))
@@ -121,17 +151,72 @@ func statsMode(cfg *Config) int {
 		}
 		outLine("   %4d x  %s", pair.count, pair.key)
 	}
-	if len(unique) != len(raw) {
+	if len(unique) != len(entries) {
 		outLine("")
-		outLine("noise removed from the picker: %d entries", len(raw)-len(unique))
+		outLine("noise removed from the picker: %d entries", len(entries)-len(unique))
 	}
 	outLine("")
+	toolHelpState := "on"
+	if !cfg.ToolHelp {
+		toolHelpState = "off"
+	}
 	outLine("explain order : %s", strings.Join(cfg.ExplainOrder, " -> "))
+	outLine("tool help     : %s", toolHelpState)
 	source := tldrPath()
 	if source == "" {
 		source = "not installed"
 	}
 	outLine("tldr source   : %s", source)
+	return 0
+}
+
+// sidecarTimeLayout is what the profile snippets write into the sidecar log.
+const sidecarTimeLayout = "2006-01-02 15:04:05"
+
+// parseSince reads a --since window: 90m, 24h, 7d, 4w or a date like 2026-10-01.
+func parseSince(value string) (time.Time, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return time.Time{}, errors.New("value expected, for example 7d")
+	}
+	spans := map[byte]time.Duration{
+		'm': time.Minute,
+		'h': time.Hour,
+		'd': 24 * time.Hour,
+		'w': 7 * 24 * time.Hour,
+	}
+	unit := trimmed[len(trimmed)-1]
+	if amount, err := strconv.Atoi(trimmed[:len(trimmed)-1]); err == nil && amount >= 0 {
+		if span, known := spans[unit]; known {
+			return time.Now().Add(-time.Duration(amount) * span), nil
+		}
+	}
+	if date, err := time.ParseInLocation("2006-01-02", trimmed, time.Local); err == nil {
+		return date, nil
+	}
+	return time.Time{}, errors.New("expected 90m, 24h, 7d, 4w or a date like 2026-10-01")
+}
+
+// restoreMode is restore_mode(): --restore puts the --clean backup back.
+func restoreMode(cfg *Config) int {
+	_, path := resolveHistory(cfg)
+	if path == "" {
+		errLine("[x] no history file found.")
+		return 1
+	}
+	backup := path + ".histex-backup"
+	if !isFile(backup) {
+		errLine("[x] no backup found at %s", backup)
+		errLine("    `--clean` writes one next to the history file before it changes")
+		errLine("    anything, so there is nothing to restore yet.")
+		return 1
+	}
+	if err := copyFilePlain(backup, path); err != nil {
+		errLine("[x] could not restore the history file: %s", err)
+		return 1
+	}
+	outLine("[ok] restored %s -> %s", backup, path)
+	outLine("     the backup is kept, so you can restore it again.")
 	return 0
 }
 

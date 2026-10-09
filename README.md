@@ -4,9 +4,10 @@ An interactive picker for your shell command history: fuzzy-search the commands
 you already ran, get them explained, and turn the useful ones into saved recipes
 or ready-to-run scripts.
 
-Built for **Windows + PowerShell**. It also *parses* bash/zsh history files
-(`.bash_history`, `.zsh_history` incl. `#epoch` markers and zsh `: time:0;cmd`
-lines), but only the Windows path is proven on a real machine so far.
+Built for **Windows + PowerShell**. It also *parses* bash, zsh and fish history
+files (`.bash_history`, `.zsh_history` incl. `#epoch` markers and zsh
+`: time:0;cmd` lines, fish's YAML `- cmd:` records) and brings a bash/zsh prompt
+snippet of its own, but only the Windows path is proven on a real machine so far.
 A single Go binary, standard library only. fzf draws the picker and the Windows
 release ships a matching build of it, so nothing has to be installed.
 
@@ -33,8 +34,9 @@ Your history is full of solutions you already found. histex turns it into a
 browsable, explainable knowledge base:
 
 - **find** - fzf over your deduplicated history (newest first, or most used first)
-- **understand** - explanations from local `tldr` pages, PowerShell `Get-Help`
-  and cheat.sh, tried in order, cached, and partly available offline
+- **understand** - explanations from local `tldr` pages, PowerShell `Get-Help`,
+  the tool's own `--help` and cheat.sh, tried in order, cached, and mostly
+  available offline
 - **keep** - save the commands that worked as a Markdown recipe, and optionally
   generate a runnable `.ps1`, `.bat` or `.sh` script
 - **reuse** - copy anything to the clipboard without leaving the picker
@@ -140,8 +142,9 @@ chmod +x histex-darwin-arm64
 
 Move the file somewhere on your `PATH` (for example `~/.local/bin/histex`).
 
-The `--today` / `--here` sidecar log is Windows-only for now, because
-`--install-snippets` writes a PowerShell profile snippet.
+`--install-snippets` writes `histex_profile.sh` on Linux/macOS - the picker
+function plus a `PROMPT_COMMAND` / `precmd` hook - and a PowerShell snippet on
+Windows. Both feed the same `history_log.tsv` that `--today` and `--here` read.
 
 ### Verify the download (optional)
 
@@ -215,8 +218,11 @@ the `preview_window` setting.
 .\histex.exe                         # interactive picker (histex> prompt)
 .\histex.exe --doctor                # health check: tools, history, clipboard
 .\histex.exe --stats                 # most used commands and tools
+.\histex.exe --stats --since 7d      # only 90m/24h/7d/4w, or 2026-10-01
 .\histex.exe --browse                # search your saved recipes (recipes> prompt)
 .\histex.exe --clean                 # delete entries from the history (auto backup)
+.\histex.exe --restore               # put that backup back
+.\histex.exe --shell fish            # read fish / bash / zsh instead of PowerShell
 .\histex.exe --explain "tar -xzf a.tgz"
 .\histex.exe --pick                  # print only the selection (shell integration)
 .\histex.exe --json                  # machine readable output
@@ -233,8 +239,15 @@ the `preview_window` setting.
 Sources are tried in order (configurable, first hit wins):
 
 ```
-local cache -> PowerShell Get-Help -> local tldr pages -> cheat.sh
+local cache -> PowerShell Get-Help -> local tldr pages -> tool help (--help) -> cheat.sh
 ```
+
+`toolhelp` is the tool's own documentation: for a command like `tar -xzf a.tgz`
+it runs `tar --help` and shows the first lines. It needs no install and no
+network, and it only ever sees the tool *name* - never your arguments. Turn it
+off with `"toolhelp": false`, or drop it from `explain_order`. A `config.json`
+you wrote earlier keeps its own order - add `toolhelp` there (before `cheat`) to
+switch the new source on.
 
 `Get-Help` and `tldr` work offline, answers are cached in `%APPDATA%\histex\cache`, and
 `--offline` guarantees nothing leaves your machine. Commands that look like they
@@ -269,10 +282,10 @@ the history picker) with a live preview of each recipe's stored commands.
 
 | key | meaning |
 |---|---|
-| `explain_order` | order of the explanation sources |
+| `explain_order` | order of the sources: `cache`, `local`, `tldr`, `toolhelp`, `cheat` |
 | `sort` | `recent` or `freq` |
 | `detail` | `short` or `full` |
-| `network`, `cache`, `tldr`, `preview` | toggles |
+| `network`, `cache`, `tldr`, `toolhelp`, `preview` | toggles |
 | `exclude` | regexes removed from the picker (noise) |
 | `secrets` | regexes that must never go online |
 | `danger` | regexes that trigger a warning |
@@ -281,9 +294,12 @@ the history picker) with a live preview of each recipe's stored commands.
 ## Notes
 
 - The PowerShell history file records neither timestamps nor directories.
-  `--install-snippets` writes a small profile snippet that adds a sidecar log,
-  which enables `--today` and `--here`. It never edits `$PROFILE` for you.
-- Nothing is ever executed for you - histex only explains, copies and saves.
+  `--install-snippets` writes a small profile snippet (PowerShell, or
+  `histex_profile.sh` for bash/zsh) that adds a sidecar log, which enables
+  `--today` and `--here`. It never edits `$PROFILE` or `~/.bashrc` for you.
+- histex never runs anything from your history. Explanations run fixed helpers
+  only: `Get-Help`, `tldr`, cheat.sh and - last and locally - `<tool> --help`
+  for the tool name alone, with a 5 second timeout, no pager and no stdin.
 - `saved_recipes.md`, `scripts/`, `recipes.jsonl` and `history_log.tsv` are
   git-ignored because they contain your own commands. See
   `saved_recipes.example.md` for the format.

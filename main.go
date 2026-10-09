@@ -22,6 +22,7 @@ type options struct {
 	detail       *string
 	explain      *string
 	preview      *string
+	since        *string
 	maxItems     *int
 	noMigrate    bool
 	today        bool
@@ -34,6 +35,7 @@ type options struct {
 	updateTldr   bool
 	browse       bool
 	clean        bool
+	restore      bool
 	stats        bool
 	pick         bool
 	doctor       bool
@@ -61,7 +63,7 @@ func usage(out *os.File) {
 		{"--data-dir DIR", "where recipes, scripts, cache and logs live"},
 		{"--no-migrate", "do not copy data from the legacy locations"},
 		{"--history FILE", "history file to read"},
-		{"--shell SHELL", "which shell history to read (auto, ps5, ps7, bash, zsh)"},
+		{"--shell SHELL", "which shell history to read (auto, ps5, ps7, bash, zsh, fish)"},
 		{"--sort MODE", "initial ordering (recent, freq)"},
 		{"--detail MODE", "explanation depth (short, full)"},
 		{"--max-items N", "cap the number of entries"},
@@ -75,13 +77,15 @@ func usage(out *os.File) {
 		{"--update-tldr", "refresh the local tldr page cache (tldr --update)"},
 		{"--browse", "browse the saved recipes"},
 		{"--clean", "delete history entries"},
+		{"--restore", "put the --clean backup back in place"},
 		{"--stats", "show usage statistics"},
+		{"--since WINDOW", "with --stats: count only 90m, 24h, 7d, 4w or 2026-10-01"},
 		{"--pick", "print only the chosen command(s) (shell integration)"},
 		{"--doctor", "check the setup: tools, history, clipboard, recipes"},
 		{"--json", "machine readable output"},
 		{"--explain CMD", "explain a command and exit"},
 		{"--init-config", "write a config file"},
-		{"--install-snippets", "write a PowerShell profile snippet file"},
+		{"--install-snippets", "write a profile snippet (PowerShell, or bash/zsh off Windows)"},
 		{"--self-test", "run offline self checks"},
 	}
 	for _, line := range lines {
@@ -121,7 +125,9 @@ func buildParser() (*flag.FlagSet, *options) {
 	fs.BoolVar(&opts.updateTldr, "update-tldr", false, "refresh the tldr cache")
 	fs.BoolVar(&opts.browse, "browse", false, "browse the saved recipes")
 	fs.BoolVar(&opts.clean, "clean", false, "delete history entries")
+	fs.BoolVar(&opts.restore, "restore", false, "put the --clean backup back")
 	fs.BoolVar(&opts.stats, "stats", false, "show usage statistics")
+	opts.since = fs.String("since", "", "with --stats: only count commands since a window")
 	fs.BoolVar(&opts.pick, "pick", false, "print only the choice")
 	fs.BoolVar(&opts.doctor, "doctor", false, "check the setup")
 	fs.BoolVar(&opts.asJSON, "json", false, "machine readable output")
@@ -267,10 +273,16 @@ func run() int {
 		return recipesMode(cfg)
 	}
 	if opts.stats {
-		return statsMode(cfg)
+		return statsMode(cfg, *opts.since)
+	}
+	if set["since"] {
+		errLine("[i] --since only applies to --stats: `histex --stats --since %s`", *opts.since)
 	}
 	if opts.clean {
 		return cleanMode(cfg)
+	}
+	if opts.restore {
+		return restoreMode(cfg)
 	}
 
 	label, path, entries, err := loadHistory(cfg, true)

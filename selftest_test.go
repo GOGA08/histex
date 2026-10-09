@@ -4,7 +4,10 @@ package main
 // `histex --self-test`, one subtest per check, plus a few table tests for the
 // pure parsing helpers.
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 // TestOfflineChecks runs the shared check list, so CI, --self-test and
 // `go test` all cover the same ground.
@@ -65,6 +68,63 @@ func TestSplitLines(t *testing.T) {
 		got := pySplitLines(tc.in)
 		if len(got) != len(tc.want) || !eqStrings(got, tc.want) {
 			t.Errorf("pySplitLines(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestFishHistoryEntries(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want []string
+	}{
+		{"plain records", "- cmd: ls -la\n  when: 1\n- cmd: git status\n  when: 2\n",
+			[]string{"ls -la", "git status"}},
+		{"block scalar keeps the layout",
+			"- cmd: |\n    if true\n        echo hi\n    end\n  when: 3\n",
+			[]string{"if true\n    echo hi\nend"}},
+		{"comments and blanks are ignored", "\n# comment\n", []string{}},
+		{"quoted scalar is unwrapped",
+			"- cmd: \"git commit -m \\\"hi\\\"\"\n  when: 4\n",
+			[]string{`git commit -m "hi"`}},
+	}
+	for _, tc := range cases {
+		got := entriesForSource("fish", tc.in, true)
+		if !eqStrings(got, tc.want) {
+			t.Errorf("%s: entriesForSource = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestParseSince(t *testing.T) {
+	for _, bad := range []string{"", "soon", "-3d"} {
+		if _, err := parseSince(bad); err == nil {
+			t.Errorf("parseSince(%q) must fail", bad)
+		}
+	}
+	week, err := parseSince("7d")
+	if err != nil {
+		t.Fatalf("parseSince(7d): %v", err)
+	}
+	if age := time.Since(week); age < 6*24*time.Hour || age > 8*24*time.Hour {
+		t.Errorf("parseSince(7d) is %v old, want about a week", age)
+	}
+	date, err := parseSince("2026-10-01")
+	if err != nil || date.Day() != 1 || date.Month() != time.October {
+		t.Errorf("parseSince(2026-10-01) = %v, %v", date, err)
+	}
+}
+
+func TestToolHelpQuery(t *testing.T) {
+	cases := map[string]string{
+		"tar -xzf a.tgz": "tar",
+		"   ":            "",
+		"| grep x":       "",
+		"--weird":        "",
+	}
+	for in, want := range cases {
+		if got := toolHelpQuery(in); got != want {
+			t.Errorf("toolHelpQuery(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

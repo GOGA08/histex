@@ -36,7 +36,17 @@ func historyCandidates() []historySource {
 		"ConsoleHost_history.txt")})
 	items = append(items, historySource{"bash", filepath.Join(homeDirPath, ".bash_history")})
 	items = append(items, historySource{"zsh", filepath.Join(homeDirPath, ".zsh_history")})
+	items = append(items, historySource{"fish", fishHistoryPath()})
 	return items
+}
+
+// fishHistoryPath is where fish keeps its history: $XDG_DATA_HOME or
+// ~/.local/share on every platform, macOS included.
+func fishHistoryPath() string {
+	if xdg := os.Getenv("XDG_DATA_HOME"); xdg != "" {
+		return filepath.Join(xdg, "fish", "fish_history")
+	}
+	return filepath.Join(homeDirPath, ".local", "share", "fish", "fish_history")
 }
 
 // resolveHistory is resolve_history(): (label, path) of the used history file.
@@ -198,6 +208,86 @@ func entriesFromText(text string, joinContinuations bool) []string {
 	return out
 }
 
+// entriesForSource parses history text the way the shell that produced it
+// writes it. fish stores structured YAML records, so it needs its own reader.
+func entriesForSource(label string, text string, joinContinuations bool) []string {
+	if label == "fish" {
+		return fishHistoryEntries(text)
+	}
+	return entriesFromText(text, joinContinuations)
+}
+
+// fishHistoryEntries reads fish's history file. Each record looks like
+//
+//   - cmd: ls -la
+//     when: 1699999999
+//
+// and a command containing newlines is written as an indented block:
+//
+//   - cmd: |
+//     if true
+//     echo hi
+//     end
+//     when: 1700000000
+func fishHistoryEntries(text string) []string {
+	entries := []string{}
+	var block []string
+	inBlock := false
+
+	flush := func() {
+		if len(block) == 0 {
+			return
+		}
+		joined := strings.Join(block, "\n")
+		block = nil
+		if strings.TrimSpace(joined) != "" {
+			entries = append(entries, strings.TrimRight(joined, "\n"))
+		}
+	}
+
+	for _, line := range pySplitLines(text) {
+		switch {
+		case strings.HasPrefix(line, "- cmd: "):
+			flush()
+			value := line[len("- cmd: "):]
+			switch strings.TrimSpace(value) {
+			case "|", "|-", "|+", ">", ">-", ">+":
+				inBlock = true
+			default:
+				inBlock = false
+				block = []string{unquoteYAMLScalar(value)}
+			}
+		case strings.HasPrefix(line, "  when:"):
+			inBlock = false
+		case inBlock && strings.HasPrefix(line, "    "):
+			block = append(block, line[4:])
+		case inBlock && strings.TrimSpace(line) == "":
+			block = append(block, "")
+		default:
+			// a separator line or an unknown key ends the current record
+			if inBlock {
+				flush()
+			}
+			inBlock = false
+		}
+	}
+	flush()
+	return entries
+}
+
+// unquoteYAMLScalar unwraps the two quoting styles fish's writer may use.
+func unquoteYAMLScalar(value string) string {
+	if len(value) >= 2 && value[0] == '"' && value[len(value)-1] == '"' {
+		inner := value[1 : len(value)-1]
+		inner = strings.ReplaceAll(inner, `\"`, `"`)
+		return strings.ReplaceAll(inner, `\\`, `\`)
+	}
+	if len(value) >= 2 && value[0] == '\'' && value[len(value)-1] == '\'' {
+		return strings.ReplaceAll(value[1:len(value)-1], `''`, `'`)
+	}
+	return value
+}
+
 // normalizeEntry is normalize_entry(): whitespace runs collapse to one space.
 func normalizeEntry(entry string) string {
 	return strings.TrimSpace(whitespaceRun.ReplaceAllString(entry, " "))
@@ -307,7 +397,7 @@ func rawEntries(cfg *Config, joinContinuations bool) (string, string, []string, 
 	if err != nil {
 		return label, path, nil, err
 	}
-	entries := entriesFromText(text, joinContinuations)
+	entries := entriesForSource(label, text, joinContinuations)
 	out := []string{}
 	for _, entry := range entries {
 		if !isNoise(entry, cfg.Exclude) {

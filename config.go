@@ -111,6 +111,7 @@ type Config struct {
 	Detail        string   `json:"detail"`
 	ExplainOrder  []string `json:"explain_order"`
 	Tldr          bool     `json:"tldr"`
+	ToolHelp      bool     `json:"toolhelp"`
 	PreviewWindow string   `json:"preview_window"`
 	Exclude       []string `json:"exclude"`
 	Secrets       []string `json:"secrets"`
@@ -137,8 +138,9 @@ func defaultConfig() *Config {
 		Sort:          "recent",
 		MaxItems:      5000,
 		Detail:        "short",
-		ExplainOrder:  []string{"cache", "local", "tldr", "cheat"},
+		ExplainOrder:  []string{"cache", "local", "tldr", "toolhelp", "cheat"},
 		Tldr:          true,
+		ToolHelp:      true,
 		PreviewWindow: "right:40%:wrap",
 		Exclude: []string{
 			`^(cls|clear|exit|quit)\s*$`,
@@ -325,6 +327,7 @@ func configPairs(cfg *Config) jobject {
 		{"detail", cfg.Detail},
 		{"explain_order", cfg.ExplainOrder},
 		{"tldr", cfg.Tldr},
+		{"toolhelp", cfg.ToolHelp},
 		{"preview_window", cfg.PreviewWindow},
 		{"exclude", cfg.Exclude},
 		{"secrets", cfg.Secrets},

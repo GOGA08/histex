@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 type checkResult struct {
@@ -207,6 +208,30 @@ func runSelfChecks() []checkResult {
 	check("zsh extended history is unwrapped",
 		eqStrings(entriesFromText(": 1700000000:0;git status -sb\n", false),
 			[]string{"git status -sb"}))
+	fakeFish := "- cmd: git status\n  when: 1699999999\n" +
+		"- cmd: |\n    if true\n        echo hi\n    end\n  when: 1700000000\n"
+	check("fish history records are parsed",
+		eqStrings(entriesForSource("fish", fakeFish, true),
+			[]string{"git status", "if true\n    echo hi\nend"}))
+	check("fish paths follow XDG_DATA_HOME",
+		strings.HasSuffix(fishHistoryPath(), filepath.Join("fish", "fish_history")))
+	check("tool help runs only plain tool names",
+		toolHelpQuery("tar -xzf backup.tgz") == "tar" && toolHelpQuery("") == "" &&
+			toolHelpQuery("| grep x") == "")
+	check("tool help is part of the explain order",
+		strings.Contains(strings.Join(defaultConfig().ExplainOrder, ","), "toolhelp"))
+	week, weekErr := parseSince("7d")
+	check("--since reads a relative window",
+		weekErr == nil && time.Since(week) >= 6*24*time.Hour &&
+			time.Since(week) <= 8*24*time.Hour)
+	day, dayErr := parseSince("2026-10-01")
+	_, badErr := parseSince("soon")
+	check("--since reads a date and rejects nonsense",
+		dayErr == nil && day.Year() == 2026 && day.Month() == time.October &&
+			day.Day() == 1 && badErr != nil)
+	check("the shell snippet logs the same sidecar file",
+		strings.Contains(shellSnippet(defaultConfig()), "history_log.tsv") &&
+			strings.Contains(shellSnippet(defaultConfig()), "_histex_log"))
 	rows := doctorRows(defaultConfig())
 	check("doctor returns labelled rows", len(rows) > 0)
 	missing := *defaultConfig()

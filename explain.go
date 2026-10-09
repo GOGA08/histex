@@ -322,6 +322,82 @@ func cheatLookup(queries []string, cfg *Config) string {
 	return ""
 }
 
+// toolHelpLines caps how much of a --help dump is offered as an explanation.
+const toolHelpLines = 60
+
+// envWith returns os.Environ() with the given KEY=value pairs applied. Existing
+// entries are replaced, so Windows never sees a duplicate variable.
+func envWith(pairs ...string) []string {
+	replaced := map[string]bool{}
+	for _, pair := range pairs {
+		if index := strings.IndexByte(pair, '='); index > 0 {
+			replaced[strings.ToUpper(pair[:index])] = true
+		}
+	}
+	result := make([]string, 0, len(pairs))
+	for _, entry := range os.Environ() {
+		index := strings.IndexByte(entry, '=')
+		if index > 0 && replaced[strings.ToUpper(entry[:index])] {
+			continue
+		}
+		result = append(result, entry)
+	}
+	return append(result, pairs...)
+}
+
+// toolHelpQuery is the external tool a command starts with, or "" when there is
+// nothing safe to run.
+func toolHelpQuery(command string) string {
+	tokens := strings.Fields(command)
+	if len(tokens) == 0 {
+		return ""
+	}
+	name := normalizeToken(tokens[0])
+	if name == "" || !nameOK.MatchString(name) {
+		return ""
+	}
+	return name
+}
+
+// toolHelp is the tool's own documentation: `<tool> --help`, offline. Only the
+// command *name* is passed on - never the user's arguments - and a pager or man
+// viewer is kept out of the way, so this can never turn interactive.
+func toolHelp(command string, cfg *Config) string {
+	if !cfg.ToolHelp {
+		return ""
+	}
+	name := toolHelpQuery(command)
+	if name == "" {
+		return ""
+	}
+	exe := lookWhich(name)
+	if exe == "" {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, exe, "--help")
+	cmd.Stdin = nil // the null device: nothing waits for input
+	cmd.Env = envWith("PAGER=cat", "GIT_PAGER=cat", "MANPAGER=cat",
+		"SYSTEMD_PAGER=cat", "NO_COLOR=1")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = nil
+	_ = cmd.Run()
+	if ctx.Err() != nil {
+		return ""
+	}
+	text := strings.TrimSpace(decodeText(out.Bytes(), false))
+	if stringWidth(text) < 40 {
+		return ""
+	}
+	lines := pySplitLines(text)
+	if len(lines) > toolHelpLines {
+		lines = lines[:toolHelpLines]
+	}
+	return strings.Join(lines, "\n")
+}
+
 // previewText is preview_text(): must stay instant, so it only reads cache.
 func previewText(command string, cfg *Config) string {
 	segments := []string{}
@@ -416,7 +492,7 @@ func explain(command string, cfg *Config, preview bool) string {
 
 	order := cfg.ExplainOrder
 	if len(order) == 0 {
-		order = []string{"cache", "local", "tldr", "cheat"}
+		order = []string{"cache", "local", "tldr", "toolhelp", "cheat"}
 	}
 	for _, source := range order {
 		text := ""
@@ -431,6 +507,8 @@ func explain(command string, cfg *Config, preview bool) string {
 			}
 		case "tldr":
 			text = tldrLookup(command, cfg)
+		case "toolhelp":
+			text = toolHelp(command, cfg)
 		case "cheat":
 			if allowNetwork {
 				text = cheatLookup(queries, cfg)
