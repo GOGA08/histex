@@ -2,7 +2,7 @@
 
 All notable changes to histex. No browser integration - terminal and files only.
 
-## [Unreleased]
+## [2.4] - 2026-10-10
 
 ### Added
 - fish history support: `$XDG_DATA_HOME/fish/fish_history` (default
