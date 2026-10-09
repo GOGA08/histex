@@ -84,6 +84,18 @@ tldr --update
 .\histex.exe               # the picker: ENTER explains, CTRL-T saves
 ```
 
+**If Windows shows "Windows protected your PC",** that is SmartScreen reacting
+to the Mark-of-the-Web that *browsers* attach to downloads - not to histex
+itself. The `curl.exe` commands above never add that mark, so it normally does
+not happen; if you downloaded through a browser instead, clear it with:
+
+```powershell
+Unblock-File .\histex.exe
+Unblock-File .\fzf.exe
+```
+
+(or allow it once: **More info -> Run anyway**).
+
 To run it simply as `histex` from anywhere, put `histex.exe` and `fzf.exe` in
 a folder that is on your `PATH` (for example `%USERPROFILE%\bin`). Open a
 **new** terminal after a `winget install` - that is what refreshes `PATH`.
