@@ -1,0 +1,10 @@
+# One line-ending policy for every checkout, Windows included: gofmt compares
+# against LF, and a Windows runner used to check every Go file out as CRLF,
+# which made the CI gofmt check fail on all of them.
+
+* text=auto eol=lf
+
+# PowerShell and batch files keep CRLF for the tools that read them.
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
