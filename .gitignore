@@ -15,6 +15,9 @@ config.json
 build/
 dist/
 
+# --- local notes (working files that stay on this machine) ------------------
+TODO.md
+
 # --- editors / OS ----------------------------------------------------------
 .vscode/
 .idea/
