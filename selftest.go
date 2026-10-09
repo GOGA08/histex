@@ -95,8 +95,10 @@ func previewRecipeForTest(displayLine string, mapping jobject) string {
 	return captureStdout(func() { recipesPreview(displayLine) })
 }
 
-// selfTest is self_test(): the offline checks of parsing and helpers.
-func selfTest(cfg *Config) int {
+// runSelfChecks runs every offline check and returns the labelled results.
+// --self-test prints them; selftest_test.go feeds the same list to `go test`,
+// so the two can never drift apart.
+func runSelfChecks() []checkResult {
 	results := []checkResult{}
 	check := func(name string, condition bool) {
 		results = append(results, checkResult{name, condition})
@@ -296,6 +298,12 @@ func selfTest(cfg *Config) int {
 			text == "hello" && leftovers == 0)
 	}
 
+	return results
+}
+
+// selfTest is self_test(): run the checks and print the report.
+func selfTest(cfg *Config) int {
+	results := runSelfChecks()
 	failures := 0
 	for _, result := range results {
 		if !result.ok {

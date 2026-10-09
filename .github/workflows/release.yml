@@ -9,48 +9,96 @@ permissions:
   contents: write
 
 jobs:
-  release:
-    runs-on: windows-latest
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            builds: "histex.exe:windows:amd64"
+            native: histex.exe
+            artifacts: histex.exe
+          - os: ubuntu-latest
+            builds: "histex-linux-amd64:linux:amd64 histex-linux-arm64:linux:arm64"
+            native: histex-linux-amd64
+            artifacts: |
+              histex-linux-amd64
+              histex-linux-arm64
+          - os: macos-latest
+            builds: "histex-darwin-arm64:darwin:arm64 histex-darwin-amd64:darwin:amd64"
+            native: histex-darwin-arm64
+            artifacts: |
+              histex-darwin-arm64
+              histex-darwin-amd64
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: false
-      - name: build histex.exe (version taken from the tag)
+      - name: build the binaries for this runner (version from the tag)
         shell: pwsh
         run: |
           $version = "${{ github.ref_name }}".TrimStart("v")
-          go build -o histex.exe -trimpath -ldflags "-s -w -X main.version=$version" .
-      - name: self-test the binary that is about to be shipped
-        run: .\histex.exe --self-test
-      - name: check that the reported version matches the tag
-        shell: pwsh
-        run: |
-          $version = "${{ github.ref_name }}".TrimStart("v")
-          $reported = (.\histex.exe --version).Trim().Split(" ")[1]
-          if ($reported -ne $version) {
-            throw "histex.exe reports $reported but the tag is $version"
+          $flags = "-s -w -X main.version=$version"
+          foreach ($spec in "${{ matrix.builds }}".Split(" ")) {
+            $output, $goos, $goarch = $spec.Split(":")
+            $env:GOOS = $goos
+            $env:GOARCH = $goarch
+            go build -trimpath -ldflags $flags -o $output .
+            if ($LASTEXITCODE -ne 0) { throw "go build failed for $spec" }
+            Write-Output "[ok] built $output ($goos/$goarch)"
           }
-          Write-Output "[ok] histex.exe reports $reported"
-      - name: fetch fzf so the release needs no separate install
+      - name: self-test and version check on the native binary
         shell: pwsh
         run: |
-          $fzfVersion = "0.74.4"
-          $base = "https://github.com/junegunn/fzf/releases/download/v$fzfVersion"
-          Invoke-WebRequest -Uri "$base/fzf-$fzfVersion-windows_amd64.zip" -OutFile fzf.zip
-          Expand-Archive -Path fzf.zip -DestinationPath . -Force
-          Remove-Item fzf.zip
-          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/junegunn/fzf/v$fzfVersion/LICENSE" -OutFile fzf-LICENSE.txt
-          .\fzf.exe --version
-      - name: publish the release and attach histex.exe plus the bundled fzf
-        shell: pwsh
+          $native = "${{ matrix.native }}"
+          $exe = if ("${{ runner.os }}" -eq "Windows") { ".\$native" } else { "./$native" }
+          & $exe --self-test
+          if ($LASTEXITCODE -ne 0) { throw "self-test failed for $native" }
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          $reported = (& $exe --version).Trim().Split(" ")[1]
+          if ($reported -ne $version) {
+            throw "$native reports $reported but the tag is $version"
+          }
+          Write-Output "[ok] $native reports $reported"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: assets-${{ matrix.os }}
+          path: ${{ matrix.artifacts }}
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: fetch fzf so the Windows download needs no separate install
+        run: |
+          set -euo pipefail
+          fzfVersion=0.74.4
+          base="https://github.com/junegunn/fzf/releases/download/v$fzfVersion"
+          curl -sSL -o /tmp/fzf.zip "$base/fzf-$fzfVersion-windows_amd64.zip"
+          unzip -o -q /tmp/fzf.zip -d dist
+          curl -sSL -o dist/fzf-LICENSE.txt \
+            "https://raw.githubusercontent.com/junegunn/fzf/v$fzfVersion/LICENSE"
+          test -s dist/fzf.exe
+          test -s dist/fzf-LICENSE.txt
+          ls -l dist
+      - name: checksums for every asset
+        run: |
+          cd dist
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
+      - name: publish the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "${{ github.ref_name }}"
-          gh release view $tag 2>$null
-          if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --title "histex $tag" --generate-notes
-          }
-          gh release upload $tag histex.exe fzf.exe fzf-LICENSE.txt --clobber
+          set -euo pipefail
+          tag="${{ github.ref_name }}"
+          gh release view "$tag" >/dev/null 2>&1 \
+            || gh release create "$tag" --title "histex $tag" --generate-notes
+          gh release upload "$tag" dist/* --clobber

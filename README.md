@@ -37,6 +37,7 @@ browsable, explainable knowledge base:
 | | |
 |---|---|
 | Windows | **just the binary** - `histex.exe` is one self-contained file, no runtime needed |
+| Linux / macOS | same binary, one file per platform; fzf has to be installed separately there |
 | fzf | **required** - ships in the Windows release, or `winget install junegunn.fzf` |
 | tldr | optional, recommended - `winget install dbrgn.tealdeer`, then `tldr --update` |
 | Go | 1.27+ - only to build from source; not needed to run the binary |
@@ -100,7 +101,54 @@ To run it simply as `histex` from anywhere, put `histex.exe` and `fzf.exe` in
 a folder that is on your `PATH` (for example `%USERPROFILE%\bin`). Open a
 **new** terminal after a `winget install` - that is what refreshes `PATH`.
 
+**Or install it with scoop** instead of downloading (scoop pulls fzf as a
+dependency, and a package manager never adds the Mark-of-the-Web):
+
+```powershell
+scoop install https://raw.githubusercontent.com/GOGA08/histex/main/packaging/scoop/histex.json
+histex --doctor
+```
+
 ### Linux / macOS
+
+The same code runs here - CI builds and self-tests it on Ubuntu for every
+commit - but the bundled download is Windows-only, so fzf must be installed
+separately.
+
+```bash
+# Linux, x86_64 (or histex-linux-arm64)
+curl -LO https://github.com/GOGA08/histex/releases/latest/download/histex-linux-amd64
+chmod +x histex-linux-amd64
+
+# macOS, Apple silicon (Intel: histex-darwin-amd64)
+curl -LO https://github.com/GOGA08/histex/releases/latest/download/histex-darwin-arm64
+chmod +x histex-darwin-arm64
+
+# fzf is required: apt install fzf | brew install fzf | pacman -S fzf | ...
+# optional, for offline explanations: tealdeer (the tldr client)
+
+./histex-linux-amd64 --doctor    # tools, history, clipboard, recipes
+./histex-linux-amd64             # the picker
+```
+
+Move the file somewhere on your `PATH` (for example `~/.local/bin/histex`).
+
+The `--today` / `--here` sidecar log is Windows-only for now, because
+`--install-snippets` writes a PowerShell profile snippet.
+
+### Verify the download (optional)
+
+Every release carries a `SHA256SUMS` file with the hash of each asset. Compare
+the line for the file you downloaded:
+
+```bash
+sha256sum histex-linux-amd64         # Linux (or: sha256sum -c SHA256SUMS --ignore-missing)
+shasum -a 256 histex-darwin-arm64    # macOS
+```
+
+```powershell
+Get-FileHash .\histex.exe -Algorithm SHA256     # Windows
+```
 
 ### Build from source (developers)
 

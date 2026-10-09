@@ -1,0 +1,23 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+PackageIdentifier: GOGA08.histex
+PackageVersion: 2.2
+PackageLocale: en-US
+Publisher: Goga J
+PublisherUrl: https://github.com/GOGA08
+PackageName: histex
+PackageUrl: https://github.com/GOGA08/histex
+License: MIT
+LicenseUrl: https://github.com/GOGA08/histex/blob/main/LICENSE
+ShortDescription: Fuzzy-search, explain and save your shell history (Windows-first, fzf-powered)
+Description: histex reads your PowerShell or shell history, drops duplicates and noise, opens an fzf picker, explains the selected command (local cache, PowerShell Get-Help, tldr, cheat.sh) and saves the useful ones as Markdown recipes, a JSONL log or runnable scripts. The Windows release ships fzf with it, so nothing else has to be installed.
+Moniker: histex
+Tags:
+  - shell
+  - history
+  - command-history
+  - fzf
+  - powershell
+  - cli
+  - productivity
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0
