@@ -2,7 +2,7 @@
 
 All notable changes to histex. No browser integration - terminal and files only.
 
-## [Unreleased]
+## [2.2] - 2026-10-09
 
 ### Added
 - The Windows release also ships `fzf.exe` (fzf 0.74.4, MIT - the license text
