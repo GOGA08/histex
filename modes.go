@@ -253,8 +253,9 @@ func filterBySidecar(entries []string, today bool, here bool, cfg *Config) []str
 	}
 	records := sidecarEntries(cfg)
 	if len(records) == 0 {
-		errLine("[i] no sidecar log yet - run `histex --install-snippets`, add " +
-			"the line to $PROFILE and open a new terminal.")
+		errLine("[i] no sidecar log yet - run `histex --install-snippets`, add the")
+		errLine("    line it prints to $PROFILE / ~/.bashrc / ~/.zshrc, then reopen")
+		errLine("    your terminal.")
 		return []string{}
 	}
 	stamp := time.Now().Format("2006-01-02")
