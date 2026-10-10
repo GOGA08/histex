@@ -71,13 +71,15 @@ checks is mentioned in the CHANGELOG, so bump it there too if it changes.
 ## Releasing
 
 1. move the `[Unreleased]` entries in `CHANGELOG.md` under a new version
-   heading
+   heading, and bump the dev-build `version` fallback in `config.go` (plus its
+   `-ldflags` example) to that version, so a plain `go build` reports the
+   latest release instead of a stale number
 2. commit and push to `main`
 3. tag and push the tag:
 
    ```powershell
-   git tag v2.4
-   git push origin v2.4
+   git tag vX.Y
+   git push origin vX.Y
    ```
 
    The `release` workflow then builds five binaries (Windows, Linux amd64 and
