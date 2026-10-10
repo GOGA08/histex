@@ -17,7 +17,8 @@ All notable changes to histex. No browser integration - terminal and files only.
 ### Changed
 - CI runs `staticcheck` (pinned to `v0.8.1`) after `go vet`; the one finding it
   reported was simplified. CONTRIBUTING.md and the README list it alongside
-  gofmt / vet / test.
+  gofmt / vet / test. The self-test job pins Go to 1.27.1, because staticcheck
+  v0.8.1 (latest) cannot read Go 1.27.2's stdlib export data yet.
 
 ## [2.4] - 2026-10-10
 
