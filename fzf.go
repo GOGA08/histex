@@ -141,8 +141,17 @@ func toggleSort(cfg *Config) string {
 	return newMode
 }
 
-// printList is print_list(): the ready-to-use list for fzf's reload bind.
-func printList(cfg *Config, doToggle bool) []string {
+// reloadArgs is what the reload bind runs: the list, plus the filters that were
+// active when the picker opened. The reload is a new process, so the filters
+// have to travel on its command line.
+func reloadArgs(filter []string) []string {
+	return append([]string{"--print-list", "--toggle-sort"}, filter...)
+}
+
+// printList is print_list(): the ready-to-use list for fzf's reload bind. It
+// has to re-apply --today / --here, otherwise a reload would quietly show the
+// whole history again.
+func printList(cfg *Config, doToggle bool, today bool, here bool) []string {
 	if doToggle {
 		local := *cfg
 		local.Sort = toggleSort(cfg)
@@ -152,6 +161,9 @@ func printList(cfg *Config, doToggle bool) []string {
 	if err != nil {
 		// stdout feeds fzf, so the complaint has to go to stderr.
 		errLine("[!] could not read the history: %s", err)
+	}
+	if today || here {
+		entries = filterBySidecar(entries, today, here, cfg)
 	}
 	outRaw(listText(entries))
 	return entries
@@ -178,7 +190,9 @@ func containsString(items []string, wanted string) bool {
 }
 
 // runFzf is run_fzf(): opens the picker, returns (status, key, selected).
-func runFzf(entries []string, cfg *Config, allowPreview bool, prompt string) (string, string, []string) {
+// reloadFilter is appended to the reload bind, so the reloaded list keeps the
+// --today / --here filter the picker was opened with.
+func runFzf(entries []string, cfg *Config, allowPreview bool, prompt string, reloadFilter []string) (string, string, []string) {
 	exe := fzfPath()
 	if exe == "" {
 		errLine("[x] fzf not found in PATH - histex requires fzf.")
@@ -244,7 +258,7 @@ func runFzf(entries []string, cfg *Config, allowPreview bool, prompt string) (st
 		"--prompt="+prompt,
 		"--header="+fzfHeader,
 		"--header-first",
-		"--bind="+reloadKey+":reload("+selfCommand("--print-list", "--toggle-sort")+")",
+		"--bind="+reloadKey+":reload("+selfCommand(reloadArgs(reloadFilter)...)+")",
 	)
 	if allowPreview && !cfg.PreviewOff {
 		if !cfg.Preview && !strings.Contains(window, "hidden") {

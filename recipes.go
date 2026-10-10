@@ -350,7 +350,7 @@ func recipesMode(cfg *Config) int {
 		// not the history picker - it should never look like plain fzf.
 		local := *cfg
 		local.Preview = true
-		status, _, selected = runFzf(display, &local, true, "recipes> ")
+		status, _, selected = runFzf(display, &local, true, "recipes> ", nil)
 		if hadPrevious {
 			os.Setenv("HISTEX_PREVIEW_MAP", previous)
 		} else {

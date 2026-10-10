@@ -142,6 +142,19 @@ func buildParser() (*flag.FlagSet, *options) {
 	return fs, opts
 }
 
+// pickerFilterArgs is the --today / --here the reload bind has to re-apply: it
+// is a fresh process, so the filter can only come from its command line.
+func pickerFilterArgs(opts *options) []string {
+	args := []string{}
+	if opts.today {
+		args = append(args, "--today")
+	}
+	if opts.here {
+		args = append(args, "--here")
+	}
+	return args
+}
+
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if value != "" {
@@ -266,7 +279,7 @@ func run() int {
 		return 0
 	}
 	if opts.printList {
-		printList(cfg, opts.toggleSort)
+		printList(cfg, opts.toggleSort, opts.today, opts.here)
 		return 0
 	}
 	if opts.browse {
@@ -315,7 +328,7 @@ func run() int {
 			len(recipes))
 	}
 
-	status, key, selected := runFzf(entries, cfg, true, "")
+	status, key, selected := runFzf(entries, cfg, true, "", pickerFilterArgs(opts))
 	if status == "error" {
 		return 1
 	}

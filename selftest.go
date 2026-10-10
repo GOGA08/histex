@@ -258,6 +258,14 @@ func runSelfChecks() []checkResult {
 		!strings.Contains(callback, ".py") && !strings.Contains(callback, ".go") &&
 			strings.Contains(callback, "--print-list") &&
 			strings.Contains(callback, "--toggle-sort"))
+	check("the reload bind carries the picker filters",
+		strings.Contains(selfCommand(reloadArgs([]string{"--today", "--here"})...),
+			"--today --here") &&
+			!strings.Contains(selfCommand(reloadArgs(nil)...), "--today"))
+	check("--today / --here are forwarded to the reload",
+		eqStrings(pickerFilterArgs(&options{today: true, here: true}),
+			[]string{"--today", "--here"}) &&
+			eqStrings(pickerFilterArgs(&options{}), []string{}))
 
 	sandbox, err := os.MkdirTemp("", "histex-test-")
 	if err == nil {

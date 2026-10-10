@@ -2,6 +2,14 @@
 
 All notable changes to histex. No browser integration - terminal and files only.
 
+## [Unreleased]
+
+### Fixed
+- `CTRL-R` (reload) no longer drops the `--today` / `--here` filter. The reload
+  bind now forwards both flags (`--print-list --toggle-sort --today --here`) and
+  `print_list` applies the sidecar filter again, so the reloaded list matches
+  the list the picker opened with.
+
 ## [2.4] - 2026-10-10
 
 ### Added

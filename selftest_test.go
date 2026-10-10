@@ -24,6 +24,29 @@ func TestOfflineChecks(t *testing.T) {
 	t.Logf("%d checks passed", len(results))
 }
 
+func TestReloadArgs(t *testing.T) {
+	cases := []struct {
+		filter []string
+		want   []string
+	}{
+		{nil, []string{"--print-list", "--toggle-sort"}},
+		{[]string{"--today"}, []string{"--print-list", "--toggle-sort", "--today"}},
+		{[]string{"--today", "--here"},
+			[]string{"--print-list", "--toggle-sort", "--today", "--here"}},
+	}
+	for _, tc := range cases {
+		if got := reloadArgs(tc.filter); !eqStrings(got, tc.want) {
+			t.Errorf("reloadArgs(%q) = %q, want %q", tc.filter, got, tc.want)
+		}
+	}
+	if args := pickerFilterArgs(&options{}); len(args) != 0 {
+		t.Errorf("pickerFilterArgs on the plain picker = %q, want none", args)
+	}
+	if args := pickerFilterArgs(&options{today: true}); !eqStrings(args, []string{"--today"}) {
+		t.Errorf("pickerFilterArgs(--today) = %q", args)
+	}
+}
+
 func TestParseFzfVersion(t *testing.T) {
 	cases := []struct {
 		in     string
