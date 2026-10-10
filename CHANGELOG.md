@@ -2,6 +2,27 @@
 
 All notable changes to histex. No browser integration - terminal and files only.
 
+## [Unreleased]
+
+### Added
+- Saving a script now asks **where** it goes, on one line:
+  `save .ps1 to [<current folder>]> _`. `cd <folder>` and plain paths move,
+  `..` goes up, `...` opens a flat fzf list of the subfolders, and ENTER accepts
+  the folder shown in the brackets. A second short prompt takes the file name
+  (`[ollama-dayeneba.ps1]>`), so no full path has to be typed. `saved_recipes.md`
+  and `recipes.jsonl` keep living in the data dir.
+- The format menu lists all five choices again, `[5] +cmd .cmd` included.
+
+### Fixed
+- Saving is all-or-nothing: every prompt is asked before the first byte is
+  written. Cancelling a prompt (CTRL-C/EOF) or giving an unusable answer stops
+  the whole save, an empty title is refused, and an empty selection is reported
+  instead of writing an empty recipe. If a write fails halfway, the recipe files
+  are truncated back and the new script is removed.
+- The "already saved" question keeps its promise: only an explicit `y`/`yes`
+  adds a duplicate; ENTER and EOF keep the existing recipe untouched.
+
+
 ## [2.5] - 2026-10-10
 
 ### Fixed

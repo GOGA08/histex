@@ -135,6 +135,46 @@ func runSelfChecks() []checkResult {
 		strings.HasPrefix(scriptBody([]string{"ls"}, ".bat"), "@echo off"))
 	check("bat script body uses CRLF",
 		strings.Contains(scriptBody([]string{"ls"}, ".bat"), "\r\n"))
+	ps1Payload, _ := scriptPayload([]string{"ls"}, ".ps1")
+	shPayload, _ := scriptPayload([]string{"ls"}, ".sh")
+	check("script payload keeps the BOM rules",
+		ps1Payload[0] == 0xEF && ps1Payload[1] == 0xBB && ps1Payload[2] == 0xBF &&
+			shPayload[0] != 0xEF)
+	goodName, goodNameOK := validScriptFileName("my notes", ".ps1")
+	badName, badNameOK := validScriptFileName("CON.ps1", ".ps1")
+	pipedName, pipedOK := validScriptFileName("a|b.ps1", ".ps1")
+	dotName, dotOK := validScriptFileName("..", ".ps1")
+	check("save file names are validated",
+		goodNameOK && goodName == "my notes.ps1" &&
+			!badNameOK && badName == "" && !pipedOK && pipedName == "" &&
+			!dotOK && dotName == "")
+	tempBase := os.TempDir()
+	parent, okParent := resolveSaveDir("..", tempBase, nil)
+	same, okSame := resolveSaveDir(".", tempBase, nil)
+	check("save destinations understand .. and .",
+		okParent && isDir(parent) && filepath.Dir(tempBase) != tempBase &&
+			okSame && same == tempBase)
+	_, okCancel := resolveSaveDir("cancel", tempBase, nil)
+	_, okBlank := resolveSaveDir("", tempBase, nil)
+	_, okMissing := resolveSaveDir("no-such-dir-here/deeper", tempBase, nil)
+	check("save destinations refuse cancel, blanks and misses",
+		!okCancel && !okBlank && !okMissing)
+	newFolder, okNewFolder := resolveSaveDir("brand-new-folder", tempBase, nil)
+	check("a new folder under an existing parent is accepted",
+		okNewFolder && newFolder == filepath.Join(tempBase, "brand-new-folder") &&
+			!isDir(newFolder))
+	check("yes answers must be explicit",
+		isAffirmative("y") && isAffirmative("yes") && isAffirmative("ki") &&
+			!isAffirmative("") && !isAffirmative("n") && !isAffirmative("nah"))
+	truncatePath := filepath.Join(tempBase, "histex-selftest-truncate.md")
+	os.WriteFile(truncatePath, []byte("keep\n"), 0o666)
+	truncateSize := atomicFileSize(truncatePath)
+	appendTextFile(truncatePath, "drop\n", false, false)
+	grown := atomicFileSize(truncatePath) > truncateSize
+	truncated := truncateFileTo(truncatePath, truncateSize) == nil &&
+		rawFileEquals(truncatePath, "keep\n")
+	os.Remove(truncatePath)
+	check("truncate keeps earlier recipes", grown && truncated)
 	check("NUL separated list", listText([]string{"a", "b"}) == "a\x00b\x00")
 	_, secret := isSecret("mysql -p password=1", defaultConfig())
 	check("secret guard", secret)

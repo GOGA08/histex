@@ -28,6 +28,231 @@ var scriptExtensions = map[string]string{
 
 var slugCleanup = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 
+// savePathWords are the reserved answers of the destination prompt.
+var savePathWords = map[string]bool{
+	"...":    true,
+	"..":     true,
+	".":      true,
+	"cancel": true,
+	"quit":   true,
+	"exit":   true,
+}
+
+// resolveSaveDir validates the destination answer against the current base:
+// parent moves, plain paths, cd commands and a one-shot fzf launch.
+func resolveSaveDir(answer string, base string, pickDir func(string) (string, bool)) (string, bool) {
+	trimmed := strings.TrimSpace(answer)
+	if trimmed == ".." {
+		parent := filepath.Dir(base)
+		if !isDir(parent) {
+			return "", false
+		}
+		return parent, true
+	}
+	if trimmed == "." {
+		if !isDir(base) {
+			return "", false
+		}
+		return base, true
+	}
+	if trimmed == "" || savePathWords[trimmed] && trimmed != "..." {
+		return "", false
+	}
+	if trimmed == "..." {
+		if pickDir == nil {
+			return "", false
+		}
+		picked, ok := pickDir(base)
+		if !ok || !isDir(picked) {
+			return "", false
+		}
+		return picked, true
+	}
+	fields := strings.Fields(trimmed)
+	if len(fields) >= 2 && strings.EqualFold(fields[0], "cd") {
+		return validatedDir(strings.Join(fields[1:], " "), base)
+	}
+	return validatedDir(trimmed, base)
+}
+
+// validatedDir accepts an existing directory, or a path whose parent exists:
+// the missing folder is created when the script is actually written, so a
+// cancelled prompt never leaves an empty folder behind.
+func validatedDir(word string, base string) (string, bool) {
+	trimmed := strings.Trim(strings.TrimSpace(word), `"'`)
+	if trimmed == "" || savePathWords[trimmed] {
+		return "", false
+	}
+	expanded := expandUser(trimmed)
+	if !filepath.IsAbs(expanded) {
+		expanded = filepath.Join(base, expanded)
+	}
+	cleaned, err := filepath.Abs(expanded)
+	if err != nil {
+		return "", false
+	}
+	if canCreateDir(cleaned) {
+		return cleaned, true
+	}
+	return "", false
+}
+
+// listChildDirs returns child directories of base as a flat sorted list, with a
+// leading ".." only when a usable parent exists. No tree is ever printed.
+func listChildDirs(base string, limit int) []string {
+	children := []string{}
+	parent := filepath.Dir(base)
+	if parent != base && isDir(parent) {
+		children = append(children, "..")
+	}
+	names, err := filepath.Glob(filepath.Join(base, "*"))
+	if err != nil {
+		return children
+	}
+	for _, name := range names {
+		if limit > 0 && len(children) >= limit {
+			break
+		}
+		if isDir(name) {
+			children = append(children, filepath.Base(name))
+		}
+	}
+	return children
+}
+
+// hasReservedName reports Windows-reserved base names and drive letters.
+func hasReservedName(base string) bool {
+	upper := strings.ToUpper(strings.TrimSuffix(base, filepath.Ext(base)))
+	switch upper {
+	case "CON", "PRN", "AUX", "NUL",
+		"COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+		"LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9":
+		return true
+	}
+	return false
+}
+
+// validScriptFileName validates a script file name without creating a
+// fallback. Unusable input returns ok=false so the save aborts instead of
+// inventing a name.
+func validScriptFileName(name string, extension string) (string, bool) {
+	trimmed := strings.Trim(strings.TrimSpace(name), `"'`)
+	base := filepath.Base(trimmed)
+	if base == "" || base == "." || base == ".." {
+		return "", false
+	}
+	if strings.ContainsAny(base, "<>:\"|?*\x00") {
+		return "", false
+	}
+	if strings.HasSuffix(base, " ") || strings.HasSuffix(base, ".") {
+		return "", false
+	}
+	if hasReservedName(base) {
+		return "", false
+	}
+	lowered := strings.ToLower(extension)
+	if lowered != "" && strings.HasSuffix(strings.ToLower(base), lowered) {
+		return base, true
+	}
+	return base + extension, true
+}
+
+// askSaveDir is the one-line destination loop. The prompt always shows the
+// current directory in brackets; cd/paths move, ".." goes up, "..." opens one
+// fzf window, and blank input accepts the shown directory. Anything unusable
+// repeats the single line; cancellation aborts the whole save.
+func askSaveDir(label string, def string, pickDir func(string) (string, bool)) (string, bool) {
+	current := strings.TrimSpace(def)
+	if expanded := expandUser(current); expanded != "" {
+		if resolved, err := filepath.Abs(expanded); err == nil {
+			current = resolved
+		}
+	}
+	for turns := 0; turns < 200; turns++ {
+		answer, proceed := ask(fmt.Sprintf("%s [%s]> ", label, current), "")
+		if !proceed {
+			return "", false
+		}
+		raw := strings.TrimSpace(answer)
+		if raw == "" {
+			// ENTER accepts the folder on show; a brand new one is fine, the
+			// write creates it, and a cancelled prompt then leaves nothing.
+			if canCreateDir(current) {
+				return current, true
+			}
+			return "", false
+		}
+		lowered := strings.ToLower(raw)
+		if lowered == "cancel" || lowered == "quit" || lowered == "exit" || lowered == "n" || lowered == "no" {
+			return "", false
+		}
+		next, ok := resolveSaveDir(raw, current, pickDir)
+		if !ok {
+			errLine("[x] not a directory: %s", raw)
+			continue
+		}
+		current = next
+	}
+	errLine("[x] too many directory moves - the save is cancelled.")
+	return "", false
+}
+
+// pickDirFzf opens one flat fzf list with the child directories and returns
+// the chosen one. Cancel returns ok=false, which aborts the whole save.
+func pickDirFzf(cfg *Config, base string) (string, bool) {
+	if !isDir(base) {
+		return "", false
+	}
+	status, _, selected := runFzf(listChildDirs(base, 1000), cfg, false, "save dir> ", nil)
+	if status != "ok" || len(selected) == 0 {
+		return "", false
+	}
+	choice := strings.TrimSpace(selected[0])
+	if choice == "" || choice == "." {
+		return base, true
+	}
+	if choice == ".." {
+		parent := filepath.Dir(base)
+		if !isDir(parent) {
+			return "", false
+		}
+		return parent, true
+	}
+	candidate := filepath.Join(base, choice)
+	if !isDir(candidate) {
+		return "", false
+	}
+	return candidate, true
+}
+
+// parentDir returns the directory part of a file path.
+func parentDir(path string) string {
+	return filepath.Dir(path)
+}
+
+// canCreateDir reports whether a folder is there or can be created right next
+// to an existing one. The creation itself happens on the first real write, so
+// an abandoned prompt never leaves an empty folder behind.
+func canCreateDir(path string) bool {
+	if path == "" {
+		return false
+	}
+	return isDir(path) || isDir(parentDir(path))
+}
+
+// samePath compares two file paths after normalization.
+func samePath(first string, second string) bool {
+	if first == "" || second == "" {
+		return false
+	}
+	absoluteFirst, errFirst := filepath.Abs(first)
+	absoluteSecond, errSecond := filepath.Abs(second)
+	if errFirst != nil || errSecond != nil {
+		return false
+	}
+	return normCase(absoluteFirst) == normCase(absoluteSecond)
+}
+
 // slugify is slugify().
 func slugify(text string, fallback string) string {
 	slug := strings.ToLower(strings.Trim(slugCleanup.ReplaceAllString(text, "-"), "-._"))
@@ -52,16 +277,128 @@ func scriptBody(commands []string, extension string) string {
 	return joined + "\n"
 }
 
-// writeScript is write_script(). cmd.exe chokes on a UTF-8 BOM; PowerShell
-// needs one for non-ASCII text.
-func writeScript(cfg *Config, title string, commands []string, extension string) (string, error) {
-	directory := dataPath(cfg, "scripts_dir")
-	if err := ensureDir(directory); err != nil {
-		return "", err
+// writeScriptTo writes ready text to an exact path with one atomic rename. A
+// half-written file can never stay behind: either the rename succeeds or the
+// old file keeps its bytes and the temporary copy is removed.
+func writeScriptTo(path string, payload []byte) error {
+	if err := ensureDir(parentDir(path)); err != nil {
+		return err
 	}
-	path := filepath.Join(directory, slugify(title, "recipe")+extension)
-	bom := extension != ".bat" && extension != ".cmd" && extension != ".sh"
-	return path, writeTextFile(path, scriptBody(commands, extension), bom, false)
+	tmp, err := os.CreateTemp(parentDir(path), ".histex-save-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	if _, err := tmp.Write(payload); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	if err := os.Chmod(tmpName, 0o666); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	return nil
+}
+
+// atomicFileSize returns the byte size, or -1 when there is no file.
+func atomicFileSize(path string) int64 {
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return -1
+	}
+	return info.Size()
+}
+
+// truncateFileTo removes bytes appended after size, or deletes a file that did
+// not exist. It keeps previously saved recipes untouched when a later step in
+// the same save fails.
+func truncateFileTo(path string, size int64) error {
+	if size < 0 {
+		if !isFile(path) {
+			return nil
+		}
+		return os.Remove(path)
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return err
+	}
+	if info.Size() <= size {
+		return nil
+	}
+	return os.Truncate(path, size)
+}
+
+// removeScriptTarget deletes a script file created in a save that later fails.
+// Empty and missing paths are ignored.
+func removeScriptTarget(path string) {
+	if path == "" || !isFile(path) {
+		return
+	}
+	os.Remove(path)
+}
+
+// resolveScriptTarget turns a file answer into a script destination inside dir.
+// ok=false aborts the save: the answer was cancelled, unsafe, unusable, or the
+// user declined the overwrite question.
+func resolveScriptTarget(answer string, dir string, extension string) (string, bool) {
+	trimmed := strings.Trim(strings.TrimSpace(answer), `"'`)
+	if trimmed == "" {
+		return "", false
+	}
+	lowered := strings.ToLower(trimmed)
+	if lowered == "cancel" || lowered == "quit" || lowered == "exit" || lowered == "n" || lowered == "no" {
+		return "", false
+	}
+	if !filepath.IsAbs(trimmed) {
+		trimmed = filepath.Join(dir, trimmed)
+	}
+	parent := parentDir(trimmed)
+	if !canCreateDir(parent) {
+		return "", false
+	}
+	base, ok := validScriptFileName(filepath.Base(trimmed), extension)
+	if !ok {
+		return "", false
+	}
+	target := filepath.Join(parent, base)
+	// Ask only when the file is really there: a fresh name must never produce
+	// a "File exists" question.
+	if isFile(target) {
+		if answer, proceed := ask(fmt.Sprintf("File exists. Overwrite %s? [y/N]: ", target), ""); !proceed || !isAffirmative(answer) {
+			return "", false
+		}
+	}
+	return target, true
+}
+
+// isAffirmative accepts only explicit yes answers. Everything else,
+// including blank input, cancellation and "no", means no.
+func isAffirmative(answer string) bool {
+	switch strings.ToLower(strings.TrimSpace(answer)) {
+	case "y", "yes", "1", "true", "k", "ki", "ho", "diax":
+		return true
+	}
+	return false
+}
+
+// scriptPayload builds the exact bytes stored for one extension.
+func scriptPayload(commands []string, extension string) ([]byte, bool) {
+	body := scriptBody(commands, extension)
+	payload := make([]byte, 0, len(body)+3)
+	if extension != ".bat" && extension != ".cmd" && extension != ".sh" {
+		payload = append(payload, 0xEF, 0xBB, 0xBF)
+	}
+	return append(payload, body...), true
 }
 
 // recipesAppend is recipes_append(): appends one recipe block.
@@ -166,78 +503,144 @@ func askTitle(commands []string) (string, bool) {
 
 var choiceSplit = regexp.MustCompile(`[\s,]+`)
 
-// saveRecipeFlow is save_recipe_flow(): the CTRL-T action.
+// saveRecipeFlow is save_recipe_flow(): the CTRL-T action. Every question is
+// asked first; the three disk writes happen only afterwards, so a cancelled or
+// unusable answer leaves the recipe files exactly as they were. ok=false means
+// the user stopped the flow, not an error: nothing is written in that case.
 func saveRecipeFlow(commands []string, cfg *Config) bool {
-	outLine("")
-	outLine("Marked commands (%d):", len(commands))
+	cleaned := []string{}
 	for _, command := range commands {
-		suffix := ""
-		if strings.Contains(command, "\n") {
-			suffix = " ..."
-		}
-		outLine("%s", "   "+firstLine(command)+suffix)
-	}
-	outLine("")
-	for _, command := range commands {
-		if reason, found := dangerReason(command, cfg); found {
-			errLine("[!] destructive pattern '%s' in: %s", reason, firstLine(command))
+		if strings.TrimSpace(command) != "" {
+			cleaned = append(cleaned, command)
 		}
 	}
-	if recipeExists(cfg, commands) {
-		answer, ok := ask(
+	if len(cleaned) == 0 {
+		errLine("[x] nothing to save: the selection is empty.")
+		return false
+	}
+	if recipeExists(cfg, cleaned) {
+		answer, proceed := ask(
 			"This exact command set is already saved. Add it again? [y/N]: ", "")
-		lowered := strings.ToLower(answer)
-		if !ok || (lowered != "y" && lowered != "yes") {
-			outLine("[i] nothing saved.")
+		if !proceed {
+			outLine("[i] cancelled - nothing saved.")
+			return false
+		}
+		if !isAffirmative(answer) {
+			outLine("[i] kept the existing recipe - nothing saved.")
 			return false
 		}
 	}
-	title, ok := askTitle(commands)
-	if !ok {
-		outLine("[i] cancelled.")
+	title, ok := askTitle(cleaned)
+	if !ok || strings.TrimSpace(title) == "" {
+		outLine("[i] cancelled - nothing saved.")
 		return false
 	}
-	tagInput, _ := ask("Tags (comma separated, optional): ", "")
+	title = strings.TrimSpace(title)
+	tagInput, ok := ask("Tags (comma separated, optional): ", "")
+	if !ok {
+		outLine("[i] cancelled - nothing saved.")
+		return false
+	}
 	tags := []string{}
 	for _, tag := range strings.Split(tagInput, ",") {
 		if trimmed := strings.TrimSpace(tag); trimmed != "" {
 			tags = append(tags, trimmed)
 		}
 	}
-	outLine("Format:  [1] markdown   [2] +PowerShell .ps1   [3] +batch .bat   " +
-		"[4] +bash .sh   (combine, e.g. 1,2)")
+	outLine("Format:  [1] markdown only   [2] +PowerShell .ps1   [3] +batch .bat   " +
+		"[4] +bash .sh   [5] +cmd .cmd   (combine, e.g. 1,2)")
 	choice := "1"
 	if value, chosen := ask("Choice [1]: ", "1"); chosen {
 		choice = value
+	} else {
+		outLine("[i] cancelled - nothing saved.")
+		return false
 	}
-	scripts := []string{}
+	picked := []string{}
+	seenExt := map[string]bool{}
 	for _, key := range choiceSplit.Split(choice, -1) {
-		extension := scriptExtensions[key]
-		if extension == "" {
+		extension := scriptExtensions[strings.TrimSpace(key)]
+		if extension == "" || seenExt[extension] {
 			continue
 		}
+		seenExt[extension] = true
+		picked = append(picked, extension)
+	}
+	type scriptPlan struct {
+		extension string
+		target    string
+		payload   []byte
+	}
+	plans := []scriptPlan{}
+	defaultDir := dataPath(cfg, "scripts_dir")
+	for _, extension := range picked {
 		if (extension == ".bat" || extension == ".cmd") &&
-			!isASCII(strings.Join(commands, "\n")) {
+			!isASCII(strings.Join(cleaned, "\n")) {
 			errLine("[!] batch files do not handle non-ASCII text well - " +
 				"consider .ps1 instead.")
 		}
-		path, err := writeScript(cfg, title, commands, extension)
-		if err != nil {
-			errLine("[x] could not write script: %s", err)
-			continue
+		scriptName := slugify(title, "recipe") + extension
+		dir, ok := askSaveDir(fmt.Sprintf("save %s to", extension), defaultDir, func(base string) (string, bool) {
+			return pickDirFzf(cfg, base)
+		})
+		if !ok {
+			outLine("[i] cancelled - nothing saved.")
+			return false
 		}
-		scripts = append(scripts, path)
+		answer, proceed := ask(fmt.Sprintf("Script file [%s]> ", scriptName), scriptName)
+		if !proceed {
+			outLine("[i] cancelled - nothing saved.")
+			return false
+		}
+		target, ok := resolveScriptTarget(answer, dir, extension)
+		if !ok {
+			outLine("[i] cancelled - nothing saved.")
+			return false
+		}
+		payload, _ := scriptPayload(cleaned, extension)
+		plans = append(plans, scriptPlan{extension, target, payload})
+		defaultDir = parentDir(target)
 	}
-	for _, path := range scripts {
-		outLine("[ok] script: %s", path)
-	}
-	path, err := recipesAppend(cfg, title, commands, tags)
-	if err != nil {
-		errLine("[x] could not write the recipe file: %s", err)
+
+	recipesPath := dataPath(cfg, "recipes")
+	jsonlPath := dataPath(cfg, "jsonl")
+	markdownSize := atomicFileSize(recipesPath)
+	jsonlSize := atomicFileSize(jsonlPath)
+	// Whatever was already on disk is what a failed save has to restore: the
+	// bytes of every script this save overwrites, keyed by target.
+	previous := map[string][]byte{}
+	wroteScripts := []string{}
+	fail := func(format string, args ...any) bool {
+		for index := len(wroteScripts) - 1; index >= 0; index-- {
+			target := wroteScripts[index]
+			if raw, had := previous[target]; had {
+				writeScriptTo(target, raw) // put the old script back
+				continue
+			}
+			removeScriptTarget(target)
+		}
+		truncateFileTo(recipesPath, markdownSize)
+		truncateFileTo(jsonlPath, jsonlSize)
+		errLine(format, args...)
 		return false
 	}
-	jsonlAppend(cfg, title, commands, tags, scripts)
-	outLine("[ok] recipe: %s", path)
+	scripts := []string{}
+	for _, plan := range plans {
+		if raw, err := os.ReadFile(plan.target); err == nil {
+			previous[plan.target] = raw
+		}
+		if err := writeScriptTo(plan.target, plan.payload); err != nil {
+			return fail("[x] could not write script: %s", err)
+		}
+		wroteScripts = append(wroteScripts, plan.target)
+		scripts = append(scripts, plan.target)
+		outLine("[ok] script: %s", plan.target)
+	}
+	if _, err := recipesAppend(cfg, title, cleaned, tags); err != nil {
+		return fail("[x] could not write the recipe file: %s", err)
+	}
+	jsonlAppend(cfg, title, cleaned, tags, scripts)
+	outLine("[ok] recipe: %s", recipesPath)
 	return true
 }
 
@@ -248,6 +651,7 @@ var (
 
 // parseRecipes is parse_recipes(): markdown -> [(title, tags, commands)].
 // A nil text means "read the recipe file".
+
 func parseRecipes(cfg *Config, text *string) []recipe {
 	body := ""
 	if text != nil {

@@ -5,7 +5,11 @@ package main
 // pure parsing helpers.
 
 import (
+	"bufio"
+	"io"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -62,6 +66,339 @@ func TestRecipeReloadEntries(t *testing.T) {
 	}
 }
 
+func TestValidScriptFileName(t *testing.T) {
+	cases := []struct {
+		name, ext, want string
+		ok              bool
+	}{
+		{"my-script", ".ps1", "my-script.ps1", true},
+		{"my-script.ps1", ".ps1", "my-script.ps1", true},
+		{"MY-SCRIPT.PS1", ".ps1", "MY-SCRIPT.PS1", true},
+		{"  spaced  ", ".sh", "spaced.sh", true},
+		{`"quoted.ps1"`, ".ps1", "quoted.ps1", true},
+		{"", ".ps1", "", false},
+		{"..", ".ps1", "", false},
+		{"a<b.ps1", ".ps1", "", false},
+		{"bad|name.ps1", ".ps1", "", false},
+		{"CON.ps1", ".ps1", "", false},
+		{"lpt1", ".bat", "", false},
+		{"trailing.", ".sh", "", false},
+	}
+	for _, tc := range cases {
+		got, ok := validScriptFileName(tc.name, tc.ext)
+		if ok != tc.ok || got != tc.want {
+			t.Errorf("validScriptFileName(%q, %q) = %q, %v; want %q, %v",
+				tc.name, tc.ext, got, ok, tc.want, tc.ok)
+		}
+	}
+}
+
+func TestResolveSaveDir(t *testing.T) {
+	base := t.TempDir()
+	sub := filepath.Join(base, "sub")
+	if err := os.MkdirAll(sub, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	pick := func(string) (string, bool) { return sub, true }
+	cases := []struct {
+		answer string
+		want   string
+		ok     bool
+	}{
+		{"sub", sub, true},
+		{"cd sub", sub, true},
+		{"CD sub", sub, true},
+		{`"sub"`, sub, true},
+		{".", base, true},
+		{"..", filepath.Dir(base), true},
+		{"...", sub, true},
+		{"", "", false},
+		{"cancel", "", false},
+		{"nope/deeper", "", false},
+		{"brand-new-folder", filepath.Join(base, "brand-new-folder"), true},
+		{base, base, true},
+	}
+	for _, tc := range cases {
+		got, ok := resolveSaveDir(tc.answer, base, pick)
+		if ok != tc.ok || (ok && !samePath(got, tc.want)) {
+			t.Errorf("resolveSaveDir(%q) = %q, %v; want %q, %v",
+				tc.answer, got, ok, tc.want, tc.ok)
+		}
+	}
+	if _, ok := resolveSaveDir("...", base, nil); ok {
+		t.Error("resolveSaveDir(...) without a picker must fail")
+	}
+}
+
+func TestListChildDirs(t *testing.T) {
+	base := t.TempDir()
+	os.MkdirAll(filepath.Join(base, "alpha"), 0o777)
+	os.MkdirAll(filepath.Join(base, "beta"), 0o777)
+	os.WriteFile(filepath.Join(base, "note.txt"), []byte("x"), 0o666)
+	got := listChildDirs(base, 1000)
+	if !eqStrings(got, []string{"..", "alpha", "beta"}) {
+		t.Errorf("listChildDirs = %q", got)
+	}
+	if limited := listChildDirs(base, 1); !eqStrings(limited, []string{".."}) {
+		t.Errorf("listChildDirs with limit = %q", limited)
+	}
+}
+
+func TestScriptPayloadBOM(t *testing.T) {
+	commands := []string{"echo hi"}
+	ps1, _ := scriptPayload(commands, ".ps1")
+	if len(ps1) < 3 || ps1[0] != 0xEF || ps1[1] != 0xBB || ps1[2] != 0xBF {
+		t.Error(".ps1 must start with a UTF-8 BOM")
+	}
+	if !strings.Contains(string(ps1), "#Requires -Version 5.1") {
+		t.Error(".ps1 must carry the PowerShell header")
+	}
+	for _, ext := range []string{".bat", ".cmd", ".sh"} {
+		payload, _ := scriptPayload(commands, ext)
+		if len(payload) >= 3 && payload[0] == 0xEF {
+			t.Errorf("%s must not start with a BOM", ext)
+		}
+	}
+}
+
+func TestTruncateFileTo(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "saved_recipes.md")
+	os.WriteFile(path, []byte("keep me\n"), 0o666)
+	size := atomicFileSize(path)
+	appendTextFile(path, "lost line\n", false, false)
+	if got := atomicFileSize(path); got <= size {
+		t.Fatalf("append did not grow the file: %d", got)
+	}
+	if err := truncateFileTo(path, size); err != nil {
+		t.Fatal(err)
+	}
+	if !rawFileEquals(path, "keep me\n") {
+		t.Error("truncateFileTo must restore the previous bytes")
+	}
+	if err := truncateFileTo(path, -1); err != nil {
+		t.Fatal(err)
+	}
+	if isFile(path) {
+		t.Error("truncateFileTo(-1) must remove a file that did not exist")
+	}
+}
+
+func TestAskSaveDirLoop(t *testing.T) {
+	base := t.TempDir()
+	os.MkdirAll(filepath.Join(base, "sub"), 0o777)
+	pick := func(string) (string, bool) { return filepath.Join(base, "sub"), true }
+	cases := []struct {
+		input string
+		want  string
+		ok    bool
+	}{
+		{"\n", base, true},
+		{"cd sub\n\n", filepath.Join(base, "sub"), true},
+		{"sub\n\n", filepath.Join(base, "sub"), true},
+		{"new-folder\n\n", filepath.Join(base, "new-folder"), true},
+		{"no/deeper\n\n", base, true},
+		{"...\n\n", filepath.Join(base, "sub"), true},
+		{"cancel\n", "", false},
+		{"", "", false},
+	}
+	for _, tc := range cases {
+		previous := stdinReader
+		stdinReader = bufio.NewReader(strings.NewReader(tc.input))
+		got, ok := captureStderrAskSaveDir(tc.input, base, pick)
+		stdinReader = previous
+		if ok != tc.ok || (ok && !samePath(got, tc.want)) {
+			t.Errorf("askSaveDir(%q) = %q, %v; want %q, %v",
+				tc.input, got, ok, tc.want, tc.ok)
+		}
+	}
+}
+
+// captureStderrAskSaveDir runs askSaveDir with a fresh stdin and swallows the
+// prompt text, which goes to stdout and stderr.
+func captureStderrAskSaveDir(input string, base string, pick func(string) (string, bool)) (string, bool) {
+	oldStdout, oldStderr := os.Stdout, os.Stderr
+	reader, writer, err := os.Pipe()
+	if err == nil {
+		os.Stdout = writer
+		os.Stderr = writer
+		defer func() {
+			writer.Close()
+			os.Stdout = oldStdout
+			os.Stderr = oldStderr
+			reader.Close()
+		}()
+		go io.Copy(io.Discard, reader)
+	}
+	stdinReader = bufio.NewReader(strings.NewReader(input))
+	return askSaveDir("save script to", base, pick)
+}
+
+// withSilentPrompt runs fn with a scripted keyboard and the prompt text on a
+// pipe, so tests can drive the real interactive flow without touching a
+// terminal. The stdin reader is restored afterwards.
+func withSilentPrompt(input string, fn func()) {
+	oldStdout, oldStderr, oldStdin := os.Stdout, os.Stderr, stdinReader
+	reader, writer, err := os.Pipe()
+	if err == nil {
+		os.Stdout, os.Stderr = writer, writer
+		go io.Copy(io.Discard, reader)
+	}
+	stdinReader = bufio.NewReader(strings.NewReader(input))
+	defer func() {
+		os.Stdout, os.Stderr, stdinReader = oldStdout, oldStderr, oldStdin
+		if err == nil {
+			writer.Close()
+			reader.Close()
+		}
+	}()
+	fn()
+}
+
+// runSaveFlow drives saveRecipeFlow with a scripted keyboard and swallows the
+// prompts, so the real file writes can be checked.
+func runSaveFlow(cfg *Config, input string) bool {
+	saved := false
+	withSilentPrompt(input, func() {
+		saved = saveRecipeFlow([]string{"git status"}, cfg)
+	})
+	return saved
+}
+
+func TestResolveScriptTargetOverwrite(t *testing.T) {
+	dir := t.TempDir()
+	existing := filepath.Join(dir, "notes.ps1")
+	os.WriteFile(existing, []byte("old\n"), 0o666)
+	run := func(answer string, input string) (string, bool) {
+		target, ok := "", false
+		withSilentPrompt(input, func() {
+			target, ok = resolveScriptTarget(answer, dir, ".ps1")
+		})
+		return target, ok
+	}
+	if target, ok := run("fresh", ""); !ok || filepath.Base(target) != "fresh.ps1" {
+		t.Errorf("a fresh name must be accepted without a question: %q, %v", target, ok)
+	}
+	if _, ok := run("notes.ps1", "n\n"); ok {
+		t.Error("declining the overwrite must abort")
+	}
+	if _, ok := run("notes.ps1", ""); ok {
+		t.Error("EOF at the overwrite question must abort")
+	}
+	if target, ok := run("notes.ps1", "y\n"); !ok || !samePath(target, existing) {
+		t.Errorf("confirming the overwrite must return the path: %q, %v", target, ok)
+	}
+	if _, ok := run("", ""); ok {
+		t.Error("an empty file answer must abort")
+	}
+}
+
+func TestSaveRecipeFlowWritesNothingWhenCancelled(t *testing.T) {
+	dataDir := t.TempDir()
+	outDir := t.TempDir()
+	cfg := defaultConfig()
+	cfg.DataDir = dataDir
+	recipes := filepath.Join(dataDir, "saved_recipes.md")
+	jsonl := filepath.Join(dataDir, "recipes.jsonl")
+
+	cases := []struct {
+		name  string
+		input string
+	}{
+		{"eof at the title", ""},
+		{"eof at the choice", "My Title\n\n"},
+		{"cancel at the destination", "My Title\n\n2\ncancel\n"},
+		{"no script destination answer", "My Title\n\n2\n"},
+		{"bad file name", "My Title\n\n2\n" + outDir + "\n../evil..\n"},
+	}
+	for _, tc := range cases {
+		if runSaveFlow(cfg, tc.input) {
+			t.Errorf("%s: saveRecipeFlow must report nothing saved", tc.name)
+		}
+		if isFile(recipes) {
+			t.Errorf("%s: the recipe file must not exist", tc.name)
+		}
+		if isFile(jsonl) {
+			t.Errorf("%s: the jsonl log must not exist", tc.name)
+		}
+		entries, err := os.ReadDir(filepath.Join(dataDir, "scripts"))
+		if err == nil && len(entries) > 0 {
+			t.Errorf("%s: no script may be written, found %d", tc.name, len(entries))
+		}
+		if leftovers, err := os.ReadDir(outDir); err == nil && len(leftovers) > 0 {
+			t.Errorf("%s: no script may reach the chosen folder", tc.name)
+		}
+	}
+	if !runSaveFlow(cfg, "My Title\n\n\n") {
+		t.Fatal("a markdown-only save must succeed")
+	}
+	markdown, _ := readTextFile(recipes, true)
+	if !strings.Contains(markdown, "### Date: ") || !strings.Contains(markdown, "My Title") {
+		t.Errorf("the recipe file is missing the heading: %q", markdown)
+	}
+	log, _ := readTextFile(jsonl, true)
+	if !strings.Contains(log, "\"scripts\": []") || !strings.Contains(log, "git status") {
+		t.Errorf("the jsonl mirror is wrong: %q", log)
+	}
+	if entries, err := os.ReadDir(filepath.Join(dataDir, "scripts")); err == nil && len(entries) > 0 {
+		t.Error("markdown-only must not create a script")
+	}
+}
+
+func TestSaveRecipeFlowWritesTheChosenScript(t *testing.T) {
+	dataDir := t.TempDir()
+	outDir := filepath.Join(t.TempDir(), "nested")
+	cfg := defaultConfig()
+	cfg.DataDir = dataDir
+	input := "My Title\n\n2\n" + outDir + "\n\nmy notes\n"
+	if !runSaveFlow(cfg, input) {
+		t.Fatal("saving with a script must succeed")
+	}
+	target := filepath.Join(outDir, "my notes.ps1")
+	if !isFile(target) {
+		t.Fatalf("the script was not written to the chosen folder: %s", target)
+	}
+	payload, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(payload) < 3 || payload[0] != 0xEF || payload[1] != 0xBB || payload[2] != 0xBF {
+		t.Error("the .ps1 must start with a UTF-8 BOM")
+	}
+	if !strings.Contains(string(payload), "git status") {
+		t.Error("the .ps1 must carry the commands")
+	}
+	log, _ := readTextFile(filepath.Join(dataDir, "recipes.jsonl"), true)
+	if !strings.Contains(log, filepath.Base(target)) {
+		t.Errorf("the jsonl mirror must point at the script: %q", log)
+	}
+	if runSaveFlow(cfg, "N\n") {
+		t.Error("a declined duplicate must not save anything")
+	}
+	markdown, _ := readTextFile(filepath.Join(dataDir, "saved_recipes.md"), true)
+	if strings.Count(markdown, "### Date: ") != 1 {
+		t.Error("declining the duplicate must not add a second block")
+	}
+	if !runSaveFlow(cfg, "y\nMy Title\n\n1\n") {
+		t.Error("an explicit yes on the duplicate must save")
+	}
+	markdown, _ = readTextFile(filepath.Join(dataDir, "saved_recipes.md"), true)
+	if strings.Count(markdown, "### Date: ") != 2 {
+		t.Error("an explicit yes must add a second block")
+	}
+}
+func TestIsAffirmative(t *testing.T) {
+
+	for _, yes := range []string{"y", "Y", "yes", "YES", "1", "true", " ki "} {
+		if !isAffirmative(yes) {
+			t.Errorf("isAffirmative(%q) must be true", yes)
+		}
+	}
+	for _, no := range []string{"", "n", "no", "nah", "0", "false", "cancel"} {
+		if isAffirmative(no) {
+			t.Errorf("isAffirmative(%q) must be false", no)
+		}
+	}
+}
 func TestParseFzfVersion(t *testing.T) {
 	cases := []struct {
 		in     string
