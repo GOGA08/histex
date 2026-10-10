@@ -73,9 +73,11 @@ func cleanMode(cfg *Config) int {
 
 // statsMode is stats_mode(): --stats shows the usage statistics. A window
 // (--since) counts the sidecar log instead, because that is the only source
-// with timestamps.
-func statsMode(cfg *Config, since string) int {
+// with timestamps. --json emits the same numbers as one machine readable
+// report on stdout.
+func statsMode(cfg *Config, since string, asJSON bool) int {
 	entries := []string{}
+	var source jobject
 	if since != "" {
 		cutoff, err := parseSince(since)
 		if err != nil {
@@ -96,8 +98,12 @@ func statsMode(cfg *Config, since string) int {
 			}
 			entries = append(entries, record.command)
 		}
-		outLine("sidecar log  : %d records, %d of them since %s",
-			len(records), len(entries), since)
+		source = jobject{{"kind", "sidecar"}, {"records", len(records)},
+			{"since", since}, {"in_window", len(entries)}}
+		if !asJSON {
+			outLine("sidecar log  : %d records, %d of them since %s",
+				len(records), len(entries), since)
+		}
 	} else {
 		label, path, raw, err := rawEntries(cfg, true)
 		if err != nil {
@@ -109,17 +115,23 @@ func statsMode(cfg *Config, since string) int {
 			return 1
 		}
 		entries = raw
-		outLine("history file : %s   (%s)", path, label)
+		source = jobject{{"kind", "history"}, {"path", path}, {"label", label}}
+		if !asJSON {
+			outLine("history file : %s   (%s)", path, label)
+		}
 	}
 	unique := dedupEntries(entries)
-	outLine("entries      : %d total, %d unique", len(entries), len(unique))
-	outLine("")
-	outLine("top 15 commands:")
-	for index, pair := range orderedCounts(entries) {
-		if index >= 15 {
+	topCommandPairs := []countPair{}
+	for _, pair := range orderedCounts(entries) {
+		if len(topCommandPairs) >= 15 {
 			break
 		}
-		outLine("   %4d x  %s", pair.count, truncateChars(firstLine(pair.key), 70))
+		topCommandPairs = append(topCommandPairs, pair)
+	}
+	topCommands := []any{}
+	for _, pair := range topCommandPairs {
+		topCommands = append(topCommands, jobject{
+			{"command", pair.key}, {"count", pair.count}})
 	}
 	tools := map[string]int{}
 	toolOrder := []string{}
@@ -143,6 +155,45 @@ func statsMode(cfg *Config, since string) int {
 	sort.SliceStable(toolPairs, func(i, j int) bool {
 		return toolPairs[i].count > toolPairs[j].count
 	})
+	topTools := []any{}
+	for _, pair := range toolPairs {
+		if len(topTools) >= 15 {
+			break
+		}
+		topTools = append(topTools, jobject{{"tool", pair.key}, {"count", pair.count}})
+	}
+	toolHelpState := "on"
+	if !cfg.ToolHelp {
+		toolHelpState = "off"
+	}
+	tldrSource := tldrPath()
+	if tldrSource == "" {
+		tldrSource = "not installed"
+	}
+
+	if asJSON {
+		payloadLine(pyJSON(jobject{
+			{"source", source},
+			{"entries", jobject{{"total", len(entries)}, {"unique", len(unique)}}},
+			{"top_commands", topCommands},
+			{"top_tools", topTools},
+			{"noise_removed", len(entries) - len(unique)},
+			{"config", jobject{
+				{"explain_order", strings.Join(cfg.ExplainOrder, " -> ")},
+				{"tool_help", cfg.ToolHelp},
+				{"tldr_source", tldrSource},
+			}},
+		}, "", 0))
+		payloadLine("\n")
+		return 0
+	}
+
+	outLine("entries      : %d total, %d unique", len(entries), len(unique))
+	outLine("")
+	outLine("top 15 commands:")
+	for _, pair := range topCommandPairs {
+		outLine("   %4d x  %s", pair.count, truncateChars(firstLine(pair.key), 70))
+	}
 	outLine("")
 	outLine("top 15 tools:")
 	for index, pair := range toolPairs {
@@ -156,17 +207,9 @@ func statsMode(cfg *Config, since string) int {
 		outLine("noise removed from the picker: %d entries", len(entries)-len(unique))
 	}
 	outLine("")
-	toolHelpState := "on"
-	if !cfg.ToolHelp {
-		toolHelpState = "off"
-	}
 	outLine("explain order : %s", strings.Join(cfg.ExplainOrder, " -> "))
 	outLine("tool help     : %s", toolHelpState)
-	source := tldrPath()
-	if source == "" {
-		source = "not installed"
-	}
-	outLine("tldr source   : %s", source)
+	outLine("tldr source   : %s", tldrSource)
 	return 0
 }
 
@@ -287,15 +330,17 @@ func mustGetwd() string {
 	return dir
 }
 
-// emitSelection is emit_selection(): --pick / --json output.
+// emitSelection is emit_selection(): --pick / --json output. It always goes to
+// stdout - that is the payload stream the wrappers capture.
 func emitSelection(selected []string, asJSON bool) int {
 	if asJSON {
-		outLine("%s", pyJSON(jobject{
+		payloadLine(pyJSON(jobject{
 			{"count", len(selected)},
 			{"commands", selected},
 		}, "", 0))
+		payloadLine("\n")
 	} else {
-		outRaw(strings.Join(selected, "\n"))
+		payloadLine(strings.Join(selected, "\n"))
 	}
 	return 0
 }

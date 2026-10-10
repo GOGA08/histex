@@ -22,6 +22,26 @@ import (
 
 var windowsNewlines = runtime.GOOS == "windows"
 
+// stdoutIsPayload is set by --pick / --json: stdout then carries only the
+// machine payload (the selection or the JSON), and every human-facing line
+// (prompts, info, headers) is routed to stderr. The shell wrappers capture
+// stdout (`$picked = & histex --pick`), so chatter on stdout would end up
+// pasted into the prompt - keeping the payload stream clean is the contract
+// the wrappers rely on.
+var stdoutIsPayload bool
+
+// payloadAsJSON is set by --json: the payload is JSON instead of plain text.
+var payloadAsJSON bool
+
+// humanTarget is where human-facing text goes: stdout normally, stderr while
+// stdout is reserved for the payload.
+func humanTarget() io.Writer {
+	if stdoutIsPayload {
+		return os.Stderr
+	}
+	return os.Stdout
+}
+
 // translateNewlines reproduces Python's text-mode write translation.
 func translateNewlines(text string) string {
 	if !windowsNewlines {
@@ -39,13 +59,21 @@ func universalNewlines(text string) string {
 	return strings.ReplaceAll(text, "\r", "\n")
 }
 
-// outLine writes one line to stdout the way print() did.
+// outLine writes one line of human-facing text the way print() did:
+// to stdout normally, to stderr while stdout is reserved for the payload.
 func outLine(format string, args ...any) {
-	io.WriteString(os.Stdout, translateNewlines(sprintf(format, args...)+"\n"))
+	io.WriteString(humanTarget(), translateNewlines(sprintf(format, args...)+"\n"))
 }
 
-// outRaw writes text to stdout exactly (newline translation only).
+// outRaw writes human-facing text exactly (newline translation only), routed
+// like outLine.
 func outRaw(text string) {
+	io.WriteString(humanTarget(), translateNewlines(text))
+}
+
+// payloadLine writes one line to stdout unconditionally: this is the machine
+// payload (--pick selection, --json report) that shell wrappers capture.
+func payloadLine(text string) {
 	io.WriteString(os.Stdout, translateNewlines(text))
 }
 

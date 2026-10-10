@@ -199,7 +199,7 @@ go test ./...     # the same offline checks as --self-test
 
 | key | action |
 |---|---|
-| `ENTER` | explain the current / marked command(s) |
+| `ENTER` | explain the current / marked command(s) - with `--pick` / `--json` it prints them to stdout instead |
 | `TAB` / `SHIFT-TAB` | mark / unmark a command (to save several at once) |
 | `CTRL-T` | save as a recipe (+ optional runnable script) |
 | `CTRL-O` | copy the marked / current command(s) to the clipboard |
@@ -226,7 +226,9 @@ the `preview_window` setting.
 .\histex.exe --shell fish            # read fish / bash / zsh instead of PowerShell
 .\histex.exe --explain "tar -xzf a.tgz"
 .\histex.exe --pick                  # print only the selection (shell integration)
-.\histex.exe --json                  # machine readable output
+.\histex.exe --stats --json          # the statistics as one JSON object
+.\histex.exe --doctor --json         # the health check as one JSON object
+.\histex.exe --json                  # the selection as JSON (with --pick)
 .\histex.exe --sort freq             # most used first
 .\histex.exe --offline               # never touch the network
 .\histex.exe --update-tldr           # refresh the local tldr page cache
@@ -234,6 +236,22 @@ the `preview_window` setting.
 .\histex.exe --init-config           # write a config file
 .\histex.exe --self-test             # offline self checks
 ```
+
+### One stream per purpose
+
+With `--pick` (or `--json`) stdout carries **only** the payload - the chosen
+command(s), or the `--stats` / `--doctor` report as one JSON object - and every
+human line (headers, prompts, notes, warnings) moves to stderr. That is the
+contract the shell wrappers rely on, because they capture stdout and insert it
+into the prompt:
+
+```powershell
+$picked = & .\histex.exe --pick
+if ($picked) { [Microsoft.PowerShell.PSConsoleReadLine]::Insert($picked) }
+```
+
+`CTRL-O` (copy) and `CTRL-T` (save) still work under `--pick`: they act on the
+selection and print nothing, so nothing is pasted by accident.
 
 ## Explanations
 

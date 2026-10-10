@@ -6,6 +6,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -511,6 +512,162 @@ func TestToolHelpQuery(t *testing.T) {
 	for in, want := range cases {
 		if got := toolHelpQuery(in); got != want {
 			t.Errorf("toolHelpQuery(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestRunHelpUnderPickKeepsStdoutClean covers the wrapper contract end to end:
+// `histex --pick --help` must not put the usage text on stdout, or the
+// PowerShell/bash wrapper would paste it into the prompt.
+func TestRunHelpUnderPickKeepsStdoutClean(t *testing.T) {
+	savedArgs := os.Args
+	defer func() {
+		os.Args = savedArgs
+		stdoutIsPayload, payloadAsJSON = false, false
+	}()
+	os.Args = []string{"histex", "--pick", "--help"}
+	out, errOut := captureBoth(func() { run() })
+	if strings.TrimSpace(out) != "" {
+		t.Errorf("--pick --help printed to stdout: %q", out)
+	}
+	if !strings.Contains(errOut, "usage: histex") {
+		t.Errorf("--pick --help must print the usage on stderr, got %q", errOut)
+	}
+}
+
+// TestRunVersionUnderJSON: --version is human text, so with --json it moves
+// to stderr and stdout stays an empty payload.
+func TestRunVersionUnderJSON(t *testing.T) {
+	savedArgs := os.Args
+	defer func() {
+		os.Args = savedArgs
+		stdoutIsPayload, payloadAsJSON = false, false
+	}()
+	os.Args = []string{"histex", "--version", "--json"}
+	out, errOut := captureBoth(func() { run() })
+	if strings.TrimSpace(out) != "" {
+		t.Errorf("--version --json printed to stdout: %q", out)
+	}
+	if !strings.Contains(errOut, appName) || !strings.Contains(errOut, version) {
+		t.Errorf("--version --json must print the version on stderr, got %q", errOut)
+	}
+}
+
+// TestStatsJSONReport: --stats --json is one JSON object on stdout with the
+// numbers of the human report.
+func TestStatsJSONReport(t *testing.T) {
+	dir := t.TempDir()
+	history := filepath.Join(dir, "history.txt")
+	os.WriteFile(history, []byte("git status\nls -la\ngit status\n"), 0o644)
+	cfg := defaultConfig()
+	cfg.History = ptrTo(history)
+
+	out, errOut := captureBoth(func() { statsMode(cfg, "", true) })
+	report := map[string]any{}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &report); err != nil {
+		t.Fatalf("--stats --json output is not JSON: %v\n%s", err, out)
+	}
+	if errOut != "" {
+		t.Errorf("--stats --json wrote human text to stderr: %q", errOut)
+	}
+	entries, ok := report["entries"].(map[string]any)
+	if !ok {
+		t.Fatalf("--stats --json report has no entries object: %s", out)
+	}
+	if entries["total"] != float64(3) || entries["unique"] != float64(2) {
+		t.Errorf("entries = %v, want total 3 / unique 2", entries)
+	}
+	if _, ok := report["top_commands"].([]any); !ok {
+		t.Errorf("--stats --json report has no top_commands array: %s", out)
+	}
+	if _, ok := report["source"].(map[string]any); !ok {
+		t.Errorf("--stats --json report has no source object: %s", out)
+	}
+}
+
+// TestStatsHumanReportKeepsItsLayout: the human mode must not change shape
+// because of the --json branch.
+func TestStatsHumanReportKeepsItsLayout(t *testing.T) {
+	dir := t.TempDir()
+	history := filepath.Join(dir, "history.txt")
+	os.WriteFile(history, []byte("git status\nls -la\ngit status\n"), 0o644)
+	cfg := defaultConfig()
+	cfg.History = ptrTo(history)
+
+	out, errOut := captureBoth(func() { statsMode(cfg, "", false) })
+	for _, want := range []string{"entries      : 3 total, 2 unique",
+		"top 15 commands:", "top 15 tools:", "explain order :"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("--stats human report misses %q:\n%s", want, out)
+		}
+	}
+	if errOut != "" {
+		t.Errorf("--stats wrote to stderr: %q", errOut)
+	}
+}
+
+// TestDoctorJSONReport: --doctor --json mirrors the rows as objects with a
+// machine readable state.
+func TestDoctorJSONReport(t *testing.T) {
+	out, errOut := captureBoth(func() { doctorMode(defaultConfig(), true) })
+	report := map[string]any{}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &report); err != nil {
+		t.Fatalf("--doctor --json output is not JSON: %v\n%s", err, out)
+	}
+	if errOut != "" {
+		t.Errorf("--doctor --json wrote human text to stderr: %q", errOut)
+	}
+	checks, ok := report["checks"].([]any)
+	if !ok || len(checks) == 0 {
+		t.Fatalf("--doctor --json report has no checks: %s", out)
+	}
+	for _, one := range checks {
+		row, isObject := one.(map[string]any)
+		if !isObject {
+			t.Fatalf("doctor check is not an object: %v", one)
+		}
+		state, _ := row["state"].(string)
+		if state != "ok" && state != "info" && state != "error" {
+			t.Errorf("doctor check state = %q, want ok / info / error", state)
+		}
+		if _, hasLabel := row["label"]; !hasLabel {
+			t.Errorf("doctor check misses the label: %v", row)
+		}
+	}
+	if _, ok := report["problems"].(float64); !ok {
+		t.Errorf("--doctor --json report has no numeric problems: %s", out)
+	}
+}
+
+// TestPickerHeader follows the payload mode.
+func TestPickerHeader(t *testing.T) {
+	defer func() { stdoutIsPayload = false }()
+	stdoutIsPayload = false
+	if header := pickerHeader(); header != fzfHeader {
+		t.Errorf("pickerHeader() = %q, want %q", header, fzfHeader)
+	}
+	stdoutIsPayload = true
+	header := pickerHeader()
+	if !strings.Contains(header, "ENTER pick") || strings.Contains(header, "ENTER explain") {
+		t.Errorf("pickerHeader() under --pick = %q, want ENTER pick", header)
+	}
+}
+
+// TestDoctorRowStates pins the three-state machine of the doctor rows.
+func TestDoctorRowStates(t *testing.T) {
+	cases := []struct {
+		row  doctorRow
+		want string
+	}{
+		{doctorRow{label: "go", ok: true}, "ok"},
+		{doctorRow{label: "tldr missing (optional)", ok: true, info: true}, "info"},
+		{doctorRow{label: "fzf missing", ok: false}, "error"},
+		{doctorRow{label: "x", ok: false, info: true}, "error"},
+	}
+	for _, tc := range cases {
+		if got := tc.row.state(); got != tc.want {
+			t.Errorf("doctorRow(%q, ok=%v, info=%v).state() = %q, want %q",
+				tc.row.label, tc.row.ok, tc.row.info, got, tc.want)
 		}
 	}
 }

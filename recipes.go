@@ -835,6 +835,12 @@ func recipesMode(cfg *Config) int {
 		return 0
 	}
 	item := recipes[index]
+	if stdoutIsPayload {
+		// The wrapper pastes stdout into the prompt, so in --pick / --json
+		// mode the recipe's commands are the payload; the pretty block below
+		// is human text and stays on stderr via outLine.
+		emitSelection(item.commands, payloadAsJSON)
+	}
 	outLine("")
 	if len(item.tags) > 0 {
 		outLine("### %s   [%s]", item.title, strings.Join(item.tags, ", "))

@@ -15,6 +15,17 @@ import (
 // FZF_HEADER - the one line pinned on top of the picker.
 const fzfHeader = "ENTER explain | TAB mark | ^T save | ^O copy | ^P preview | ^R sort"
 
+// pickerHeader is the header for the current mode: with --pick / --json the
+// ENTER key emits the choice instead of explaining it, so the header has to
+// say so. The header lives inside fzf's UI (never on histex's stdout), so the
+// payload contract is unaffected either way.
+func pickerHeader() string {
+	if stdoutIsPayload {
+		return strings.Replace(fzfHeader, "ENTER explain", "ENTER pick", 1)
+	}
+	return fzfHeader
+}
+
 // fzfPath is fzf_path(). A copy next to histex.exe wins over PATH: the Windows
 // release ships one, so histex needs no separate fzf install.
 func fzfPath() string {
@@ -170,7 +181,7 @@ func recipeReloadEntries() ([]string, bool) {
 // list instead of the history.
 func printList(cfg *Config, doToggle bool, today bool, here bool) []string {
 	if entries, isRecipes := recipeReloadEntries(); isRecipes {
-		outRaw(listText(entries))
+		payloadLine(listText(entries))
 		return entries
 	}
 	if doToggle {
@@ -186,7 +197,9 @@ func printList(cfg *Config, doToggle bool, today bool, here bool) []string {
 	if today || here {
 		entries = filterBySidecar(entries, today, here, cfg)
 	}
-	outRaw(listText(entries))
+	// The NUL separated list IS the payload: it feeds fzf's reload bind, so it
+	// goes to stdout no matter which mode the process runs in.
+	payloadLine(listText(entries))
 	return entries
 }
 
@@ -277,7 +290,7 @@ func runFzf(entries []string, cfg *Config, allowPreview bool, prompt string, rel
 		"--marker=> ",
 		"--pointer=>",
 		"--prompt="+prompt,
-		"--header="+fzfHeader,
+		"--header="+pickerHeader(),
 		"--header-first",
 		"--bind="+reloadKey+":reload("+selfCommand(reload...)+")",
 	)

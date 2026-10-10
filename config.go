@@ -12,12 +12,11 @@ import (
 
 const appName = "histex"
 
-// version of histex (kept identical to the Python one).
 // version of histex. A plain `go build` reports 2.0; the release workflow
 // overrides it from the git tag, so the binary always matches its release:
 //
-//	go build -ldflags "-X main.version=2.6" .
-var version = "2.6"
+//	go build -ldflags "-X main.version=2.7" .
+var version = "2.7"
 
 var (
 	scriptDir     = exeDir()

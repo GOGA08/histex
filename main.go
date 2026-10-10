@@ -5,6 +5,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"strings"
@@ -49,7 +50,7 @@ type options struct {
 }
 
 // usage mirrors the argparse help closely enough to be familiar.
-func usage(out *os.File) {
+func usage(out io.Writer) {
 	fmt.Fprintf(out, "usage: histex [options]\n\n")
 	fmt.Fprintf(out, "Interactive picker for shell command history (fzf based).\n\n")
 	fmt.Fprintf(out, "options:\n")
@@ -82,7 +83,7 @@ func usage(out *os.File) {
 		{"--since WINDOW", "with --stats: count only 90m, 24h, 7d, 4w or 2026-10-01"},
 		{"--pick", "print only the chosen command(s) (shell integration)"},
 		{"--doctor", "check the setup: tools, history, clipboard, recipes"},
-		{"--json", "machine readable output"},
+		{"--json", "machine readable report (--stats, --doctor) or selection"},
 		{"--explain CMD", "explain a command and exit"},
 		{"--init-config", "write a config file"},
 		{"--install-snippets", "write a profile snippet (PowerShell, or bash/zsh off Windows)"},
@@ -91,6 +92,10 @@ func usage(out *os.File) {
 	for _, line := range lines {
 		fmt.Fprintf(out, "  %-24s %s\n", line[0], line[1])
 	}
+	fmt.Fprintf(out, "\nWith --pick (or --json) stdout carries only the payload:\n")
+	fmt.Fprintf(out, "the chosen command(s), or the JSON report of --stats / --doctor.\n")
+	fmt.Fprintf(out, "Everything else goes to stderr, so the shell wrappers can capture\n")
+	fmt.Fprintf(out, "stdout without the human chatter getting in the way.\n")
 	fmt.Fprintf(out, "\nKeys inside fzf:\n")
 	fmt.Fprintf(out, "  ENTER   explain            TAB     mark / unmark\n")
 	fmt.Fprintf(out, "  CTRL-T  save recipe        CTRL-O  copy to clipboard\n")
@@ -130,7 +135,7 @@ func buildParser() (*flag.FlagSet, *options) {
 	opts.since = fs.String("since", "", "with --stats: only count commands since a window")
 	fs.BoolVar(&opts.pick, "pick", false, "print only the choice")
 	fs.BoolVar(&opts.doctor, "doctor", false, "check the setup")
-	fs.BoolVar(&opts.asJSON, "json", false, "machine readable output")
+	fs.BoolVar(&opts.asJSON, "json", false, "machine readable report (--stats, --doctor) or selection")
 	opts.explain = fs.String("explain", "", "explain a command and exit")
 	opts.preview = fs.String("preview", "", "print text for the fzf preview pane")
 	fs.BoolVar(&opts.printList, "print-list", false, "print the ready-to-use list")
@@ -178,9 +183,21 @@ func main() {
 }
 
 func run() int {
+	// The shell wrappers run `histex --pick ...` and capture stdout, so the
+	// payload flags are recognised before any output at all: even --help has
+	// to honour the contract (human text to stderr, payload to stdout).
+	for _, arg := range os.Args[1:] {
+		if arg == "--pick" || strings.HasPrefix(arg, "--pick=") {
+			stdoutIsPayload = true
+		}
+		if arg == "--json" || strings.HasPrefix(arg, "--json=") {
+			stdoutIsPayload = true
+			payloadAsJSON = true
+		}
+	}
 	for _, arg := range os.Args[1:] {
 		if arg == "-h" || arg == "-help" || arg == "--help" {
-			usage(os.Stdout)
+			usage(humanTarget())
 			return 0
 		}
 	}
@@ -193,6 +210,11 @@ func run() int {
 	}
 	set := map[string]bool{}
 	parser.Visit(func(one *flag.Flag) { set[one.Name] = true })
+
+	// The parsed flags are the authority; the pre-scan above only covered the
+	// paths that run before parsing (like --help).
+	stdoutIsPayload = opts.pick || opts.asJSON
+	payloadAsJSON = opts.asJSON
 
 	if opts.versionFlag {
 		outLine("%s %s", appName, version)
@@ -258,7 +280,7 @@ func run() int {
 		return installSnippets(cfg)
 	}
 	if opts.doctor {
-		return doctorMode(cfg)
+		return doctorMode(cfg, opts.asJSON)
 	}
 	if opts.selfTestFlag {
 		return selfTest(cfg)
@@ -286,7 +308,7 @@ func run() int {
 		return recipesMode(cfg)
 	}
 	if opts.stats {
-		return statsMode(cfg, *opts.since)
+		return statsMode(cfg, *opts.since, opts.asJSON)
 	}
 	if set["since"] {
 		errLine("[i] --since only applies to --stats: `histex --stats --since %s`", *opts.since)
@@ -321,8 +343,14 @@ func run() int {
 
 	errLine("[i] %s   (%s)", path, label)
 	errLine("    %d unique commands, sorted by %s", len(entries), cfg.Sort)
-	errLine("    keys: ENTER explain | TAB mark | CTRL-T save | CTRL-O copy | " +
-		"CTRL-P preview | CTRL-R reload/sort | ESC cancel")
+	// The header has to tell the truth about ENTER: in the wrappers (--pick /
+	// --json) it emits the choice, it does not explain it.
+	enterKey := "explain"
+	if stdoutIsPayload {
+		enterKey = "pick"
+	}
+	errLine("    keys: ENTER %s | TAB mark | CTRL-T save | CTRL-O copy | "+
+		"CTRL-P preview | CTRL-R reload/sort | ESC cancel", enterKey)
 	if recipes := parseRecipes(cfg, nil); len(recipes) > 0 {
 		errLine("    recipes: %d saved - `histex --browse` opens the library",
 			len(recipes))
@@ -341,9 +369,9 @@ func run() int {
 		return 0
 	}
 
-	if opts.pick || opts.asJSON {
-		return emitSelection(selected, opts.asJSON)
-	}
+	// CTRL-O and CTRL-T act on the selection instead of emitting it, so they
+	// have to win over --pick / --json: in the wrappers they keep working,
+	// they just do not print a payload.
 	if key == "ctrl-o" {
 		doClipboard(selected)
 		return 0
@@ -351,6 +379,17 @@ func run() int {
 	if key == "ctrl-t" || key == "ctrl-x" {
 		saveRecipeFlow(selected, cfg)
 		return 0
+	}
+	if opts.pick || opts.asJSON {
+		// The destructive check still runs on stderr: a wrapper must never
+		// paste a rm -rf without at least shouting about it.
+		for _, command := range selected {
+			if reason, found := dangerReason(command, cfg); found {
+				errLine("[!] destructive pattern '%s' - be careful before running this.",
+					reason)
+			}
+		}
+		return emitSelection(selected, opts.asJSON)
 	}
 
 	for _, command := range selected {

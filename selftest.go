@@ -4,6 +4,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -72,6 +73,41 @@ func captureStdout(run func()) string {
 	out := <-done
 	reader.Close()
 	return universalNewlines(out)
+}
+
+// captureBoth runs one function and returns (stdout, stderr) separately, so
+// the --pick / --json contract can be checked: payload on stdout, human text
+// on stderr.
+func captureBoth(run func()) (string, string) {
+	oldOut, oldErr := os.Stdout, os.Stderr
+	outReader, outWriter, outErr := os.Pipe()
+	errReader, errWriter, errErr := os.Pipe()
+	if outErr != nil || errErr != nil {
+		run()
+		os.Stdout, os.Stderr = oldOut, oldErr
+		return "", ""
+	}
+	os.Stdout, os.Stderr = outWriter, errWriter
+	outDone := make(chan string, 1)
+	errDone := make(chan string, 1)
+	go func() {
+		var buffer bytes.Buffer
+		io.Copy(&buffer, outReader)
+		outDone <- buffer.String()
+	}()
+	go func() {
+		var buffer bytes.Buffer
+		io.Copy(&buffer, errReader)
+		errDone <- buffer.String()
+	}()
+	run()
+	outWriter.Close()
+	errWriter.Close()
+	os.Stdout, os.Stderr = oldOut, oldErr
+	outText, errText := <-outDone, <-errDone
+	outReader.Close()
+	errReader.Close()
+	return universalNewlines(outText), universalNewlines(errText)
 }
 
 // previewRecipeForTest is preview_recipe_for_test(): runs recipes_preview()
@@ -296,6 +332,119 @@ func runSelfChecks() []checkResult {
 		}
 	}
 	check("doctor flags a missing history file", flagged)
+
+	// --pick / --json stdout contract: payload on stdout, human text on
+	// stderr. The shell wrappers capture stdout, so a leak here ends up
+	// pasted into the prompt.
+	savedPayload, savedJSON := stdoutIsPayload, payloadAsJSON
+	stdoutIsPayload, payloadAsJSON = true, false
+	leakedOut, routedErr := captureBoth(func() {
+		outLine("[i] human chatter")
+		outRaw("more chatter\n")
+		payloadLine("git status")
+	})
+	check("--pick keeps human text off stdout",
+		!strings.Contains(leakedOut, "chatter") &&
+			strings.Contains(routedErr, "chatter") &&
+			strings.Contains(leakedOut, "git status"))
+	stdoutIsPayload, payloadAsJSON = false, false
+	plainOut, plainErr := captureBoth(func() {
+		outLine("[i] human chatter")
+	})
+	check("without --pick the human text stays on stdout",
+		strings.Contains(plainOut, "chatter") && !strings.Contains(plainErr, "chatter"))
+	stdoutIsPayload, payloadAsJSON = true, false
+	pickedOut, _ := captureBoth(func() { emitSelection([]string{"ls -la", "git status"}, false) })
+	check("--pick prints only the chosen commands",
+		pickedOut == "ls -la\ngit status")
+	stdoutIsPayload, payloadAsJSON = true, true
+	jsonOut, _ := captureBoth(func() { emitSelection([]string{"ls -la"}, true) })
+	jsonDoc := map[string]any{}
+	jsonErr := json.Unmarshal([]byte(strings.TrimSpace(jsonOut)), &jsonDoc)
+	commands, _ := jsonDoc["commands"].([]any)
+	check("--pick --json emits one JSON object with the commands",
+		jsonErr == nil && jsonDoc["count"] == float64(1) && len(commands) == 1)
+	stdoutIsPayload, payloadAsJSON = savedPayload, savedJSON
+
+	// --stats --json: one machine readable report on stdout.
+	statsDir, statsErr := os.MkdirTemp("", "histex-stats-")
+	if statsErr == nil {
+		defer os.RemoveAll(statsDir)
+		statsHistory := filepath.Join(statsDir, "history.txt")
+		os.WriteFile(statsHistory,
+			[]byte("git status\nls -la\ngit status\n"), 0o644)
+		statsCfg := defaultConfig()
+		statsCfg.History = ptrTo(statsHistory)
+		statsCfg.Shell = "custom"
+		statsOut, statsErrOut := captureBoth(func() {
+			statsMode(statsCfg, "", true)
+		})
+		statsDoc := map[string]any{}
+		statsJSONErr := json.Unmarshal([]byte(strings.TrimSpace(statsOut)), &statsDoc)
+		entries, entriesOK := statsDoc["entries"].(map[string]any)
+		topCommands, commandsOK := statsDoc["top_commands"].([]any)
+		_, sourceOK := statsDoc["source"].(map[string]any)
+		check("--stats --json is one machine readable report",
+			statsJSONErr == nil && entriesOK && commandsOK && sourceOK &&
+				entries["total"] == float64(3) && entries["unique"] == float64(2) &&
+				len(topCommands) >= 1 && statsErrOut == "")
+	}
+	// --doctor --json: the same rows as the human report, machine readable.
+	doctorOut, doctorErrOut := captureBoth(func() {
+		doctorMode(defaultConfig(), true)
+	})
+	doctorDoc := map[string]any{}
+	doctorJSONErr := json.Unmarshal([]byte(strings.TrimSpace(doctorOut)), &doctorDoc)
+	checks, checksOK := doctorDoc["checks"].([]any)
+	statesValid := checksOK
+	for _, one := range checks {
+		row, isObject := one.(map[string]any)
+		if !isObject {
+			statesValid = false
+			continue
+		}
+		state, _ := row["state"].(string)
+		if state != "ok" && state != "info" && state != "error" {
+			statesValid = false
+		}
+	}
+	_, problemsOK := doctorDoc["problems"].(float64)
+	check("--doctor --json is one machine readable report",
+		doctorJSONErr == nil && checksOK && statesValid && problemsOK &&
+			len(checks) > 0 && doctorErrOut == "")
+	stdoutIsPayload, payloadAsJSON = savedPayload, savedJSON
+
+	// The optional extras report as [i], not as a proud [ok].
+	infoRows := 0
+	for _, row := range rows {
+		if row.info {
+			infoRows++
+			if !row.ok {
+				infoRows = -1
+				break
+			}
+		}
+	}
+	check("doctor marks the optional extras as info, not as ok",
+		infoRows >= 0 &&
+			(doctorRow{label: "x", ok: true, info: true}.state() == "info") &&
+			(doctorRow{label: "x", ok: true}.state() == "ok") &&
+			(doctorRow{label: "x", ok: false}.state() == "error"))
+	check("the picker header tells the truth about ENTER",
+		strings.Contains(fzfHeader, "ENTER explain"))
+	savedPayload = stdoutIsPayload
+	stdoutIsPayload = true
+	pickHeader := pickerHeader()
+	stdoutIsPayload = savedPayload
+	check("the picker header switches to pick under --pick",
+		strings.Contains(pickHeader, "ENTER pick") &&
+			!strings.Contains(pickHeader, "ENTER explain"))
+	usageBuffer := &bytes.Buffer{}
+	usage(usageBuffer)
+	usageText := usageBuffer.String()
+	check("the help explains the payload contract",
+		strings.Contains(usageText, "stdout carries only the payload") &&
+			strings.Contains(usageText, "machine readable report (--stats, --doctor)"))
 	check("recipe preview prints the stored commands",
 		strings.Contains(previewRecipeForTest("My title   (1 cmd)", jobject{
 			{"My title   (1 cmd)", []string{"ls -la"}},

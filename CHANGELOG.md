@@ -2,6 +2,39 @@
 
 All notable changes to histex. No browser integration - terminal and files only.
 
+## [2.7] - 2026-10-11
+
+### Added
+- `--stats --json` and `--doctor --json`: both reports are also emitted as one
+  JSON object on stdout. `--stats --json` carries `source` (history file or
+  sidecar window), `entries.total` / `entries.unique`, `top_commands`,
+  `top_tools`, `noise_removed` and `config`; `--doctor --json` carries
+  `histex`, `problems` and a `checks` array whose objects have `label`,
+  `state` (`ok` / `info` / `error`) and `detail`. The human report is unchanged
+  and still the default.
+
+### Fixed
+- The `--pick` wrappers get a clean stdout again. Under `--pick` / `--json`
+  stdout now carries **only** the payload (the chosen commands, or the JSON
+  report) and every human line - status headers, `--help`, `--version`,
+  cancel/error notes, recipe browsing output - is routed to stderr, so nothing
+  but the selection can land in the prompt. The picker header and the pre-picker
+  key hint say `ENTER pick` in that mode, and the destructive-command warning
+  still fires (on stderr) before a payload is emitted.
+- `CTRL-O` (copy) and `CTRL-T` (save) are handled before the payload emit, so
+  they keep working under `--pick`; used to be swallowed by the selection print,
+  which pasted the command into the prompt instead of copying or saving it.
+- `--browse` under `--pick` emits the chosen recipe's commands as the payload
+  (the pretty block stays on stderr) instead of printing prose on stdout.
+
+### Changed
+- `--json` in `--help` now reads `machine readable report (--stats, --doctor)
+  or selection`, and the help explains the stdout/stderr split.
+- `--doctor` marks the optional extras (missing `tldr`, inactive prompt
+  snippet) as `[i]` instead of `[ok]`, so a "not installed" line no longer
+  looks like a pass. `--self-test` checks: 73 -> 83, including the payload
+  contract, the two JSON reports and the doctor row states.
+
 ## [2.6] - 2026-10-10
 
 ### Added
