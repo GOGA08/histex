@@ -2,7 +2,7 @@
 
 All notable changes to histex. No browser integration - terminal and files only.
 
-## [Unreleased]
+## [2.5] - 2026-10-10
 
 ### Fixed
 - `CTRL-R` (reload) no longer drops the `--today` / `--here` filter. The reload
