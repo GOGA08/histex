@@ -2,6 +2,19 @@
 
 All notable changes to histex. No browser integration - terminal and files only.
 
+## [2.7.1] - 2026-10-11
+
+### Fixed
+- Interrupting `--browse` with `CTRL-C` no longer leaves scratch files in
+  `%TEMP%`. The recipe library hands its prepared list and preview map to fzf
+  through two temp files and removes them with `defer`, but the interrupt
+  handler exits with code 130 straight away, so no `defer` ran and
+  `histex-*.histex-recipes.txt` / `histex-*.histex-preview.json` stayed behind.
+  Temp files are now registered (`cleanup.go`) and the interrupt notice -
+  plus a sweep at the end of `main` - removes them; the sweep is idempotent,
+  so the normal deferred removal still does its job. `--self-test` checks:
+  83 -> 85.
+
 ## [2.7] - 2026-10-11
 
 ### Added

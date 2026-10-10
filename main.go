@@ -175,11 +175,23 @@ func main() {
 	signal.Notify(signals, os.Interrupt)
 	go func() {
 		<-signals
-		errLine("")
-		errLine("[i] interrupted.")
+		interruptNotice()
 		os.Exit(130)
 	}()
-	os.Exit(run())
+	code := run()
+	// Safety net for every path that returned instead of exiting: whatever a
+	// deferred removal missed (or an error path skipped) goes now.
+	cleanupTempFiles()
+	os.Exit(code)
+}
+
+// interruptNotice is what CTRL-C prints, plus the temp-file sweep the exiting
+// process would otherwise skip: os.Exit runs no defers, so the --browse temp
+// files would stay behind in %TEMP%.
+func interruptNotice() {
+	errLine("")
+	errLine("[i] interrupted.")
+	cleanupTempFiles()
 }
 
 func run() int {

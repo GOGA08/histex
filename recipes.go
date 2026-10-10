@@ -792,7 +792,7 @@ func recipesMode(cfg *Config) int {
 	}
 
 	status, selected := "cancel", []string{}
-	handle, err := os.CreateTemp("", "histex-*.histex-preview.json")
+	handle, err := newTrackedTemp("histex-*.histex-preview.json")
 	if err == nil {
 		mapPath := handle.Name()
 		handle.WriteString(pyJSON(mapping, "", 0))
@@ -812,7 +812,7 @@ func recipesMode(cfg *Config) int {
 		// a file (HISTEX_RECIPES_LIST) - the same trick as the preview map - so
 		// the reload shows the exact same titles, duplicate disambiguation
 		// included.
-		if listHandle, listErr := os.CreateTemp("", "histex-*.histex-recipes.txt"); listErr == nil {
+		if listHandle, listErr := newTrackedTemp("histex-*.histex-recipes.txt"); listErr == nil {
 			listPath := listHandle.Name()
 			listHandle.WriteString(listText(display))
 			listHandle.Close()

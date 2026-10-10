@@ -445,6 +445,27 @@ func runSelfChecks() []checkResult {
 	check("the help explains the payload contract",
 		strings.Contains(usageText, "stdout carries only the payload") &&
 			strings.Contains(usageText, "machine readable report (--stats, --doctor)"))
+
+	// CTRL-C exits with os.Exit, so the deferred removal of the --browse temp
+	// files never runs; the exit-time sweep has to catch them instead.
+	sweepFile, sweepErr := newTrackedTemp("histex-test-*.histex-sweep.txt")
+	if sweepErr == nil {
+		sweepPath := sweepFile.Name()
+		sweepFile.Close()
+		sweepOut, sweepErrOut := captureBoth(func() { interruptNotice() })
+		check("CTRL-C sweeps the registered temp files",
+			!isFile(sweepPath) && sweepOut == "" &&
+				strings.Contains(sweepErrOut, "interrupted"))
+	}
+	trackedFile, trackedErr := newTrackedTemp("histex-test-*.histex-tracked.txt")
+	if trackedErr == nil {
+		trackedPath := trackedFile.Name()
+		trackedFile.Close()
+		cleanupTempFiles()
+		cleanupTempFiles() // the sweep must be safe to run twice
+		check("the exit-time sweep removes and forgets the temp files",
+			!isFile(trackedPath) && len(tempFiles) == 0)
+	}
 	check("recipe preview prints the stored commands",
 		strings.Contains(previewRecipeForTest("My title   (1 cmd)", jobject{
 			{"My title   (1 cmd)", []string{"ls -la"}},

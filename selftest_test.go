@@ -653,6 +653,59 @@ func TestPickerHeader(t *testing.T) {
 	}
 }
 
+// TestInterruptNotice: CTRL-C exits without running defers, so the notice has
+// to drop the registered temp files itself - otherwise every interrupted
+// `--browse` leaves a preview map and a recipe list in %TEMP%.
+func TestInterruptNotice(t *testing.T) {
+	handle, err := newTrackedTemp("histex-test-*.interrupt.txt")
+	if err != nil {
+		t.Fatalf("newTrackedTemp: %v", err)
+	}
+	path := handle.Name()
+	handle.Close()
+	if !isFile(path) {
+		t.Fatalf("newTrackedTemp did not create %s", path)
+	}
+	out, errOut := captureBoth(func() { interruptNotice() })
+	if out != "" {
+		t.Errorf("the interrupt notice wrote to stdout: %q", out)
+	}
+	if !strings.Contains(errOut, "interrupted") {
+		t.Errorf("interrupt notice = %q, want the interrupted line", errOut)
+	}
+	if isFile(path) {
+		t.Errorf("interruptNotice left %s behind", path)
+	}
+}
+
+// TestCleanupTempFilesIsIdempotent: the sweep runs on the interrupt path and
+// again at the end of main, so it must survive a list it already emptied.
+func TestCleanupTempFilesIsIdempotent(t *testing.T) {
+	first, err := newTrackedTemp("histex-test-*.sweep-first.txt")
+	if err != nil {
+		t.Fatalf("newTrackedTemp: %v", err)
+	}
+	firstPath := first.Name()
+	first.Close()
+	second, err := newTrackedTemp("histex-test-*.sweep-second.txt")
+	if err != nil {
+		t.Fatalf("newTrackedTemp: %v", err)
+	}
+	secondPath := second.Name()
+	second.Close()
+
+	cleanupTempFiles()
+	cleanupTempFiles()
+	for _, path := range []string{firstPath, secondPath} {
+		if isFile(path) {
+			t.Errorf("cleanupTempFiles left %s behind", path)
+		}
+	}
+	if len(tempFiles) != 0 {
+		t.Errorf("cleanupTempFiles kept %d entries", len(tempFiles))
+	}
+}
+
 // TestDoctorRowStates pins the three-state machine of the doctor rows.
 func TestDoctorRowStates(t *testing.T) {
 	cases := []struct {
