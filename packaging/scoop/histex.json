@@ -1,11 +1,11 @@
 {
     "##": "histex - bump 'version' and 'hash' on every release (see packaging/README.md)",
-    "version": "2.6",
+    "version": "2.7",
     "description": "Fuzzy-search, explain and save your shell history (Windows-first, fzf-powered)",
     "homepage": "https://github.com/GOGA08/histex",
     "license": "MIT",
-    "url": "https://github.com/GOGA08/histex/releases/download/v2.6/histex.exe#/histex.exe",
-    "hash": "b43d92974ce3aa20067cdfbdede37216dff5535874f7158a6fe10efd71fbf331",
+    "url": "https://github.com/GOGA08/histex/releases/download/v2.7/histex.exe#/histex.exe",
+    "hash": "5e049d8ecf18af68acf41580d3f1fced4b36ed04531f8c951e8bb29d2bc6cfda",
     "bin": "histex.exe",
     "depends": "fzf",
     "checkver": {
