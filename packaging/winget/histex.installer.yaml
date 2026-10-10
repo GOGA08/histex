@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
 PackageIdentifier: GOGA08.histex
-PackageVersion: 2.5
+PackageVersion: 2.6
 InstallerType: portable
 Commands:
   - histex
@@ -9,8 +9,8 @@ Dependencies:
     - PackageIdentifier: junegunn.fzf
 Installers:
   - Architecture: x64
-    InstallerUrl: https://github.com/GOGA08/histex/releases/download/v2.5/histex.exe
-    InstallerSha256: AEBA002D50482A031CA92C42CD99A1F4173A5C1FA04B4967C0014F560C770410
+    InstallerUrl: https://github.com/GOGA08/histex/releases/download/v2.6/histex.exe
+    InstallerSha256: B43D92974CE3AA20067CDFBDEDE37216DFF5535874F7158A6FE10EFD71FBF331
     PortableCommandAlias: histex
 ManifestType: installer
 ManifestVersion: 1.6.0
