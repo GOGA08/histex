@@ -371,10 +371,21 @@ func TestSaveRecipeFlowWritesTheChosenScript(t *testing.T) {
 	if !strings.Contains(log, filepath.Base(target)) {
 		t.Errorf("the jsonl mirror must point at the script: %q", log)
 	}
+	markdown, _ := readTextFile(filepath.Join(dataDir, "saved_recipes.md"), true)
+	if !strings.Contains(markdown, "<!-- scripts: "+target+" -->") {
+		t.Errorf("the markdown history must record where the script lives: %q", markdown)
+	}
+	stored := parseRecipes(cfg, nil)
+	if len(stored) != 1 || !eqStrings(stored[0].scripts, []string{target}) {
+		t.Errorf("the recorded path must be read back: %+v", stored)
+	}
+	if label := recipeLabel(stored[0]); !strings.Contains(label, target) {
+		t.Errorf("the library line must show the folder: %q", label)
+	}
 	if runSaveFlow(cfg, "N\n") {
 		t.Error("a declined duplicate must not save anything")
 	}
-	markdown, _ := readTextFile(filepath.Join(dataDir, "saved_recipes.md"), true)
+	markdown, _ = readTextFile(filepath.Join(dataDir, "saved_recipes.md"), true)
 	if strings.Count(markdown, "### Date: ") != 1 {
 		t.Error("declining the duplicate must not add a second block")
 	}

@@ -16,6 +16,7 @@ type recipe struct {
 	title    string
 	tags     []string
 	commands []string
+	scripts  []string
 }
 
 // scriptExtensions is SCRIPT_EXTENSIONS.
@@ -401,15 +402,48 @@ func scriptPayload(commands []string, extension string) ([]byte, bool) {
 	return append(payload, body...), true
 }
 
-// recipesAppend is recipes_append(): appends one recipe block.
-func recipesAppend(cfg *Config, title string, commands []string, tags []string) (string, error) {
+// recipeLabel is the one line the recipe library shows: title, tags, command
+// count, and where the runnable files live - so the list can be searched by
+// folder as well.
+func recipeLabel(item recipe) string {
+	label := item.title
+	if len(item.tags) > 0 {
+		label += fmt.Sprintf("   [%s]", strings.Join(item.tags, ", "))
+	}
+	label += fmt.Sprintf("   (%d cmd)", len(item.commands))
+	if len(item.scripts) > 0 {
+		label += "   -> " + strings.Join(item.scripts, scriptsSeparator)
+	}
+	return label
+}
+
+// storedScripts returns the recorded script paths of an already saved command
+// set, so the duplicate question can say where the file lives.
+func storedScripts(cfg *Config, commands []string) []string {
+	joined := strings.TrimSpace(strings.Join(commands, "\n"))
+	for _, item := range parseRecipes(cfg, nil) {
+		if strings.TrimSpace(strings.Join(item.commands, "\n")) == joined {
+			return item.scripts
+		}
+	}
+	return nil
+}
+
+// recipesAppend is recipes_append(): appends one recipe block. The script paths
+// travel with the block as a meta comment, so the markdown history records
+// where the runnable file actually lives on this machine.
+func recipesAppend(cfg *Config, title string, commands []string, tags []string, scripts []string) (string, error) {
 	path := dataPath(cfg, "recipes")
 	stamp := time.Now().Format("2006-01-02 15:04")
 	heading := fmt.Sprintf("### Date: %s - %s", stamp, title)
 	if len(tags) > 0 {
 		heading += fmt.Sprintf("   <!-- tags: %s -->", strings.Join(tags, ", "))
 	}
-	block := fmt.Sprintf("%s\n\n```bash\n%s\n```\n\n", heading, strings.Join(commands, "\n"))
+	block := heading + "\n"
+	if len(scripts) > 0 {
+		block += fmt.Sprintf("\n<!-- scripts: %s -->\n", strings.Join(scripts, scriptsSeparator))
+	}
+	block += fmt.Sprintf("\n```bash\n%s\n```\n\n", strings.Join(commands, "\n"))
 	if err := ensureDir(filepath.Dir(path)); err != nil {
 		return path, err
 	}
@@ -519,8 +553,12 @@ func saveRecipeFlow(commands []string, cfg *Config) bool {
 		return false
 	}
 	if recipeExists(cfg, cleaned) {
-		answer, proceed := ask(
-			"This exact command set is already saved. Add it again? [y/N]: ", "")
+		detail := ""
+		if known := storedScripts(cfg, cleaned); len(known) > 0 {
+			detail = fmt.Sprintf(" (script: %s)", strings.Join(known, scriptsSeparator))
+		}
+		answer, proceed := ask(fmt.Sprintf(
+			"This exact command set is already saved%s. Add it again? [y/N]: ", detail), "")
 		if !proceed {
 			outLine("[i] cancelled - nothing saved.")
 			return false
@@ -636,7 +674,7 @@ func saveRecipeFlow(commands []string, cfg *Config) bool {
 		scripts = append(scripts, plan.target)
 		outLine("[ok] script: %s", plan.target)
 	}
-	if _, err := recipesAppend(cfg, title, cleaned, tags); err != nil {
+	if _, err := recipesAppend(cfg, title, cleaned, tags, scripts); err != nil {
 		return fail("[x] could not write the recipe file: %s", err)
 	}
 	jsonlAppend(cfg, title, cleaned, tags, scripts)
@@ -645,9 +683,14 @@ func saveRecipeFlow(commands []string, cfg *Config) bool {
 }
 
 var (
-	tagsMarker = regexp.MustCompile(`<!--\s*tags:\s*([^>]*?)-->`)
-	datePrefix = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}(\s+\d{2}:\d{2})?\s*-\s*`)
+	tagsMarker    = regexp.MustCompile(`<!--\s*tags:\s*([^>]*?)-->`)
+	scriptsMarker = regexp.MustCompile(`<!--\s*scripts:\s*([^>]*?)-->`)
+	datePrefix    = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}(\s+\d{2}:\d{2})?\s*-\s*`)
 )
+
+// scriptsSeparator keeps generated script paths readable inside the markdown
+// meta comment; it is not a legal character in a Windows path.
+const scriptsSeparator = " | "
 
 // parseRecipes is parse_recipes(): markdown -> [(title, tags, commands)].
 // A nil text means "read the recipe file".
@@ -671,15 +714,17 @@ func parseRecipes(cfg *Config, text *string) []recipe {
 	title := ""
 	haveTitle := false
 	tags := []string{}
+	scripts := []string{}
 	commands := []string{}
 	inCode := false
 	for _, line := range pySplitLines(body) {
 		if strings.HasPrefix(line, "### ") {
 			if haveTitle {
-				recipes = append(recipes, recipe{title, tags, commands})
+				recipes = append(recipes, recipe{title, tags, commands, scripts})
 			}
 			heading := strings.TrimSpace(line[4:])
 			tags = []string{}
+			scripts = []string{}
 			if location := tagsMarker.FindStringSubmatchIndex(heading); location != nil {
 				inner := heading[location[2]:location[3]]
 				for _, tag := range strings.Split(inner, ",") {
@@ -701,6 +746,14 @@ func parseRecipes(cfg *Config, text *string) []recipe {
 		if !haveTitle {
 			continue
 		}
+		if location := scriptsMarker.FindStringSubmatch(line); location != nil {
+			for _, script := range strings.Split(location[1], scriptsSeparator) {
+				if trimmed := strings.TrimSpace(script); trimmed != "" {
+					scripts = append(scripts, trimmed)
+				}
+			}
+			continue
+		}
 		if strings.HasPrefix(line, "```") {
 			inCode = !inCode
 			continue
@@ -710,7 +763,7 @@ func parseRecipes(cfg *Config, text *string) []recipe {
 		}
 	}
 	if haveTitle {
-		recipes = append(recipes, recipe{title, tags, commands})
+		recipes = append(recipes, recipe{title, tags, commands, scripts})
 	}
 	return recipes
 }
@@ -726,11 +779,7 @@ func recipesMode(cfg *Config) int {
 	display := []string{}
 	mapping := jobject{}
 	for index, item := range recipes {
-		label := item.title
-		if len(item.tags) > 0 {
-			label += fmt.Sprintf("   [%s]", strings.Join(item.tags, ", "))
-		}
-		line := fmt.Sprintf("%s   (%d cmd)", label, len(item.commands))
+		line := recipeLabel(item)
 		for {
 			if _, taken := lookup[line]; !taken {
 				break

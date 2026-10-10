@@ -289,6 +289,14 @@ Every question is asked **before** anything is written. Cancelling a prompt
 never gain a half-written or empty entry; if a write still fails halfway, the
 files are put back and the new script is removed.
 
+Where a script lives is part of the recipe's history, so it is recorded twice:
+in `recipes.jsonl` (`"scripts": [...]`) and in `saved_recipes.md` right under the
+title, as a `<!-- scripts: C:\...\x.ps1 -->` comment. `--browse` therefore shows
+the full path next to each recipe and can be searched by folder. Saving the same
+commands twice is allowed - the question you get names the script already
+recorded, so you can tell whether you are saving it to the same place or a new
+one.
+
 Every recipe is also appended to `recipes.jsonl` for scripting.
 
 `--browse` opens the recipes as their own library: a `recipes> ` prompt (never

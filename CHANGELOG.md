@@ -12,6 +12,13 @@ All notable changes to histex. No browser integration - terminal and files only.
   (`[ollama-dayeneba.ps1]>`), so no full path has to be typed. `saved_recipes.md`
   and `recipes.jsonl` keep living in the data dir.
 - The format menu lists all five choices again, `[5] +cmd .cmd` included.
+- The script location is now recorded in the markdown history too: every saved
+  block carries a `<!-- scripts: <path> -->` line under its title (the same
+  paths `recipes.jsonl` already stored), `parse_recipes` reads them back, and
+  `--browse` shows the full path next to each recipe, so the library is
+  searchable by folder. The duplicate question names the script that is already
+  recorded (`already saved (script: C:\...\x.ps1)`) - saving the same commands
+  in a second place stays possible.
 
 ### Fixed
 - Saving is all-or-nothing: every prompt is asked before the first byte is

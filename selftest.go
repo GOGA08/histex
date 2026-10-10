@@ -35,7 +35,8 @@ func eqRecipes(left []recipe, right []recipe) bool {
 	for index := range left {
 		if left[index].title != right[index].title ||
 			!eqStrings(left[index].tags, right[index].tags) ||
-			!eqStrings(left[index].commands, right[index].commands) {
+			!eqStrings(left[index].commands, right[index].commands) ||
+			!eqStrings(left[index].scripts, right[index].scripts) {
 			return false
 		}
 	}
@@ -231,12 +232,23 @@ func runSelfChecks() []checkResult {
 	check("preview counts the joined commands", joinedNote)
 
 	sample := "### Date: 2026-10-04 00:39 - My title   <!-- tags: a, b -->\n" +
+		"\n<!-- scripts: C:\\data\\scripts\\my-title.ps1 -->\n" +
 		"\n```bash\nls -la\n```\n"
 	check("recipe parsing strips date and tags",
 		eqRecipes(parseRecipes(defaultConfig(), &sample), []recipe{
 			{title: "My title", tags: []string{"a", "b"},
-				commands: []string{"ls -la"}},
+				commands: []string{"ls -la"},
+				scripts:  []string{`C:\data\scripts\my-title.ps1`}},
 		}))
+	check("a recipe without a script has no paths",
+		eqRecipes(parseRecipes(defaultConfig(),
+			ptrTo("### Date: 2026-10-04 00:39 - plain\n\n```bash\nls\n```\n")),
+			[]recipe{{title: "plain", tags: []string{}, commands: []string{"ls"}}}))
+	labelled := recipeLabel(recipe{title: "My title", tags: []string{"a"},
+		commands: []string{"ls"}, scripts: []string{`C:\x\a.ps1`}})
+	check("the recipe line shows where the script lives",
+		strings.Contains(labelled, `C:\x\a.ps1`) && strings.Contains(labelled, "[a]") &&
+			!strings.Contains(recipeLabel(recipe{title: "t", commands: []string{"ls"}}), "->"))
 	check("preview is hidden by default", !defaultConfig().Preview)
 	check("preview toggle key is configured",
 		defaultConfig().PreviewKey == "ctrl-p")
