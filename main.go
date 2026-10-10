@@ -328,7 +328,7 @@ func run() int {
 			len(recipes))
 	}
 
-	status, key, selected := runFzf(entries, cfg, true, "", pickerFilterArgs(opts))
+	status, key, selected := runFzf(entries, cfg, true, "", historyReloadArgs(pickerFilterArgs(opts)))
 	if status == "error" {
 		return 1
 	}

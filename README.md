@@ -191,6 +191,7 @@ While working on the code:
 ```powershell
 gofmt -l .        # must print nothing (CI enforces it)
 go vet ./...
+go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 ./...
 go test ./...     # the same offline checks as --self-test
 ```
 

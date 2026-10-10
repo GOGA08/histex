@@ -26,6 +26,7 @@ go build -o histex.exe .
 ```powershell
 gofmt -l .        # must print nothing: CI fails on unformatted files
 go vet ./...
+go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 ./...
 go test ./...     # the same offline checks as --self-test
 .\histex.exe --self-test
 ```

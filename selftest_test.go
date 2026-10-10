@@ -5,6 +5,7 @@ package main
 // pure parsing helpers.
 
 import (
+	"os"
 	"testing"
 	"time"
 )
@@ -24,7 +25,7 @@ func TestOfflineChecks(t *testing.T) {
 	t.Logf("%d checks passed", len(results))
 }
 
-func TestReloadArgs(t *testing.T) {
+func TestHistoryReloadArgs(t *testing.T) {
 	cases := []struct {
 		filter []string
 		want   []string
@@ -35,8 +36,8 @@ func TestReloadArgs(t *testing.T) {
 			[]string{"--print-list", "--toggle-sort", "--today", "--here"}},
 	}
 	for _, tc := range cases {
-		if got := reloadArgs(tc.filter); !eqStrings(got, tc.want) {
-			t.Errorf("reloadArgs(%q) = %q, want %q", tc.filter, got, tc.want)
+		if got := historyReloadArgs(tc.filter); !eqStrings(got, tc.want) {
+			t.Errorf("historyReloadArgs(%q) = %q, want %q", tc.filter, got, tc.want)
 		}
 	}
 	if args := pickerFilterArgs(&options{}); len(args) != 0 {
@@ -44,6 +45,20 @@ func TestReloadArgs(t *testing.T) {
 	}
 	if args := pickerFilterArgs(&options{today: true}); !eqStrings(args, []string{"--today"}) {
 		t.Errorf("pickerFilterArgs(--today) = %q", args)
+	}
+}
+
+func TestRecipeReloadEntries(t *testing.T) {
+	path := t.TempDir() + string(os.PathSeparator) + "recipes.txt"
+	os.WriteFile(path, []byte(listText([]string{"one", "two   (2 cmd)"})), 0o644)
+	t.Setenv("HISTEX_RECIPES_LIST", path)
+	got, isRecipes := recipeReloadEntries()
+	if !isRecipes || !eqStrings(got, []string{"one", "two   (2 cmd)"}) {
+		t.Errorf("recipeReloadEntries = %q (isRecipes=%v)", got, isRecipes)
+	}
+	t.Setenv("HISTEX_RECIPES_LIST", "")
+	if _, isRecipes = recipeReloadEntries(); isRecipes {
+		t.Error("recipeReloadEntries must not fire without the marker")
 	}
 }
 

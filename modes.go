@@ -31,7 +31,7 @@ func cleanMode(cfg *Config) int {
 		errLine("[x] no history file found.")
 		return 1
 	}
-	status, _, selected := runFzf(entries, cfg, false, "clean> ", nil)
+	status, _, selected := runFzf(entries, cfg, false, "clean> ", historyReloadArgs(nil))
 	if status != "ok" || len(selected) == 0 {
 		return 0
 	}

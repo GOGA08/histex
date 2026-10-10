@@ -197,7 +197,7 @@ func runSelfChecks() []checkResult {
 			{title: "My title", tags: []string{"a", "b"},
 				commands: []string{"ls -la"}},
 		}))
-	check("preview is hidden by default", defaultConfig().Preview == false)
+	check("preview is hidden by default", !defaultConfig().Preview)
 	check("preview toggle key is configured",
 		defaultConfig().PreviewKey == "ctrl-p")
 	check("header mentions the preview key", strings.Contains(fzfHeader, "^P"))
@@ -259,13 +259,28 @@ func runSelfChecks() []checkResult {
 			strings.Contains(callback, "--print-list") &&
 			strings.Contains(callback, "--toggle-sort"))
 	check("the reload bind carries the picker filters",
-		strings.Contains(selfCommand(reloadArgs([]string{"--today", "--here"})...),
+		strings.Contains(selfCommand(historyReloadArgs([]string{"--today", "--here"})...),
 			"--today --here") &&
-			!strings.Contains(selfCommand(reloadArgs(nil)...), "--today"))
+			!strings.Contains(selfCommand(historyReloadArgs(nil)...), "--today"))
 	check("--today / --here are forwarded to the reload",
 		eqStrings(pickerFilterArgs(&options{today: true, here: true}),
 			[]string{"--today", "--here"}) &&
 			eqStrings(pickerFilterArgs(&options{}), []string{}))
+	recipePath := filepath.Join(os.TempDir(), "histex-selftest-recipes.txt")
+	os.WriteFile(recipePath, []byte(listText([]string{"recipe a", "recipe b"})), 0o644)
+	prevRecipeList, hadRecipeList := os.LookupEnv("HISTEX_RECIPES_LIST")
+	os.Setenv("HISTEX_RECIPES_LIST", recipePath)
+	reloaded, isRecipes := recipeReloadEntries()
+	check("the recipe reload reads the prepared list",
+		isRecipes && eqStrings(reloaded, []string{"recipe a", "recipe b"}))
+	if hadRecipeList {
+		os.Setenv("HISTEX_RECIPES_LIST", prevRecipeList)
+	} else {
+		os.Unsetenv("HISTEX_RECIPES_LIST")
+	}
+	os.Remove(recipePath)
+	_, isPlain := recipeReloadEntries()
+	check("a history reload is not a recipe reload", !isPlain)
 
 	sandbox, err := os.MkdirTemp("", "histex-test-")
 	if err == nil {

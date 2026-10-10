@@ -141,17 +141,38 @@ func toggleSort(cfg *Config) string {
 	return newMode
 }
 
-// reloadArgs is what the reload bind runs: the list, plus the filters that were
-// active when the picker opened. The reload is a new process, so the filters
-// have to travel on its command line.
-func reloadArgs(filter []string) []string {
+// historyReloadArgs is what the history picker's reload bind runs: the list,
+// plus the filters that were active when the picker opened. The reload is a new
+// process, so the filters have to travel on its command line.
+func historyReloadArgs(filter []string) []string {
 	return append([]string{"--print-list", "--toggle-sort"}, filter...)
+}
+
+// recipeReloadEntries returns the recipe library's prepared list, or
+// (nil, false) when the reload is a plain history reload. The list is built by
+// the parent once and handed over through HISTEX_RECIPES_LIST, so the reload
+// shows the exact same lines - same titles, same duplicate disambiguation.
+func recipeReloadEntries() ([]string, bool) {
+	path := os.Getenv("HISTEX_RECIPES_LIST")
+	if path == "" {
+		return nil, false
+	}
+	text, err := readTextFile(path, false)
+	if err != nil {
+		return []string{}, true // the marker is set but the file is gone
+	}
+	return strings.Split(strings.TrimRight(text, "\x00"), "\x00"), true
 }
 
 // printList is print_list(): the ready-to-use list for fzf's reload bind. It
 // has to re-apply --today / --here, otherwise a reload would quietly show the
-// whole history again.
+// whole history again, and in the recipe library it prints the prepared recipe
+// list instead of the history.
 func printList(cfg *Config, doToggle bool, today bool, here bool) []string {
+	if entries, isRecipes := recipeReloadEntries(); isRecipes {
+		outRaw(listText(entries))
+		return entries
+	}
 	if doToggle {
 		local := *cfg
 		local.Sort = toggleSort(cfg)
@@ -190,9 +211,9 @@ func containsString(items []string, wanted string) bool {
 }
 
 // runFzf is run_fzf(): opens the picker, returns (status, key, selected).
-// reloadFilter is appended to the reload bind, so the reloaded list keeps the
-// --today / --here filter the picker was opened with.
-func runFzf(entries []string, cfg *Config, allowPreview bool, prompt string, reloadFilter []string) (string, string, []string) {
+// reload is the command the reload bind runs, after the program path: the
+// history picker passes its filters, the recipe library its own list command.
+func runFzf(entries []string, cfg *Config, allowPreview bool, prompt string, reload []string) (string, string, []string) {
 	exe := fzfPath()
 	if exe == "" {
 		errLine("[x] fzf not found in PATH - histex requires fzf.")
@@ -258,7 +279,7 @@ func runFzf(entries []string, cfg *Config, allowPreview bool, prompt string, rel
 		"--prompt="+prompt,
 		"--header="+fzfHeader,
 		"--header-first",
-		"--bind="+reloadKey+":reload("+selfCommand(reloadArgs(reloadFilter)...)+")",
+		"--bind="+reloadKey+":reload("+selfCommand(reload...)+")",
 	)
 	if allowPreview && !cfg.PreviewOff {
 		if !cfg.Preview && !strings.Contains(window, "hidden") {

@@ -344,19 +344,35 @@ func recipesMode(cfg *Config) int {
 		mapPath := handle.Name()
 		handle.WriteString(pyJSON(mapping, "", 0))
 		handle.Close()
+		defer os.Remove(mapPath)
 		previous, hadPrevious := os.LookupEnv("HISTEX_PREVIEW_MAP")
 		os.Setenv("HISTEX_PREVIEW_MAP", mapPath)
+		defer func() {
+			if hadPrevious {
+				os.Setenv("HISTEX_PREVIEW_MAP", previous)
+			} else {
+				os.Unsetenv("HISTEX_PREVIEW_MAP")
+			}
+		}()
+
+		// The reload is a fresh process, so the prepared recipe list travels in
+		// a file (HISTEX_RECIPES_LIST) - the same trick as the preview map - so
+		// the reload shows the exact same titles, duplicate disambiguation
+		// included.
+		if listHandle, listErr := os.CreateTemp("", "histex-*.histex-recipes.txt"); listErr == nil {
+			listPath := listHandle.Name()
+			listHandle.WriteString(listText(display))
+			listHandle.Close()
+			os.Setenv("HISTEX_RECIPES_LIST", listPath)
+			defer os.Remove(listPath)
+			defer os.Unsetenv("HISTEX_RECIPES_LIST")
+		}
+
 		// Own prompt + visible preview: this is the recipe library,
 		// not the history picker - it should never look like plain fzf.
 		local := *cfg
 		local.Preview = true
-		status, _, selected = runFzf(display, &local, true, "recipes> ", nil)
-		if hadPrevious {
-			os.Setenv("HISTEX_PREVIEW_MAP", previous)
-		} else {
-			os.Unsetenv("HISTEX_PREVIEW_MAP")
-		}
-		os.Remove(mapPath) // one short-lived file, never in the repo
+		status, _, selected = runFzf(display, &local, true, "recipes> ", []string{"--print-list"})
 	}
 	if status != "ok" || len(selected) == 0 {
 		return 0

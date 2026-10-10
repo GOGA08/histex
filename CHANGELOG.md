@@ -9,6 +9,15 @@ All notable changes to histex. No browser integration - terminal and files only.
   bind now forwards both flags (`--print-list --toggle-sort --today --here`) and
   `print_list` applies the sidecar filter again, so the reloaded list matches
   the list the picker opened with.
+- `CTRL-R` in the recipe library no longer swaps the recipes for the shell
+  history. The prepared recipe list now travels to the reload process through
+  `HISTEX_RECIPES_LIST` (the same file hand-off the preview uses), so a reload
+  shows the same titles again instead of the history.
+
+### Changed
+- CI runs `staticcheck` (pinned to `v0.8.1`) after `go vet`; the one finding it
+  reported was simplified. CONTRIBUTING.md and the README list it alongside
+  gofmt / vet / test.
 
 ## [2.4] - 2026-10-10
 
