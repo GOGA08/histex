@@ -2,7 +2,7 @@
 
 All notable changes to histex. No browser integration - terminal and files only.
 
-## [Unreleased]
+## [2.6] - 2026-10-10
 
 ### Added
 - Saving a script now asks **where** it goes, on one line:

@@ -16,8 +16,8 @@ const appName = "histex"
 // version of histex. A plain `go build` reports 2.0; the release workflow
 // overrides it from the git tag, so the binary always matches its release:
 //
-//	go build -ldflags "-X main.version=2.5" .
-var version = "2.5"
+//	go build -ldflags "-X main.version=2.6" .
+var version = "2.6"
 
 var (
 	scriptDir     = exeDir()

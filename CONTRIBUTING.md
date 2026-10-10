@@ -68,6 +68,23 @@ checks is mentioned in the CHANGELOG, so bump it there too if it changes.
 - human-facing output goes to **stderr** (`[i] ...`, `[!] ...`, `[x] ...`);
   stdout stays clean because it feeds fzf and `--json`.
 
+## Version numbers
+
+histex follows Semantic Versioning, so the numbers keep a meaning instead of
+just counting upwards:
+
+| part | when it moves | example |
+|---|---|---|
+| **MAJOR** (`3.0`) | a breaking change: a renamed or removed flag, a config key that stops working, a changed file format | the Python-to-Go rewrite was `2.0` |
+| **MINOR** (`2.6`) | new features that stay backwards compatible | fish support, `--restore`, choosing where a script goes |
+| **PATCH** (`2.6.1`) | fixes, docs and CI only - nothing new to use | the two `CTRL-R` reload fixes |
+
+Tags are `vX.Y` for a feature release and `vX.Y.Z` for a fix-only release; the
+binary reports the tag without the leading `v`. A published tag is never moved
+or deleted - if a release turns out wrong, cut the next patch. Small doc-only or
+CI-only commits do not need a release at all: they can wait under `[Unreleased]`
+until a feature release carries them out.
+
 ## Releasing
 
 1. move the `[Unreleased]` entries in `CHANGELOG.md` under a new version
