@@ -2,6 +2,13 @@
 
 All notable changes to histex. No browser integration - terminal and files only.
 
+## [Unreleased]
+
+### Changed
+- docs: the README no longer shows the hand-drawn picker screenshot
+  (`docs/picker.svg`) nor its text twin - both had drifted from the real
+  screen. The picker header itself is unchanged.
+
 ## [2.8] - 2026-10-11
 
 ### Changed

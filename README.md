@@ -11,23 +11,6 @@ snippet of its own, but only the Windows path is proven on a real machine so far
 A single Go binary, standard library only. fzf draws the picker and the Windows
 release ships a matching build of it, so nothing has to be installed.
 
-![the histex picker](docs/picker.svg)
-
-<details>
-<summary>Text-only version of the same screen</summary>
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│ ENTER explain | TAB mark | ^T save | ^O copy | ^P preview  663/663│
-│ histex> docker                                                      │
-│ > docker compose up -d                                              │
-│   docker ps -a                                                      │
-│   docker system prune -af                                           │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-</details>
-
 ## Why
 
 Your history is full of solutions you already found. histex turns it into a
