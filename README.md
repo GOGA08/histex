@@ -42,6 +42,9 @@ browsable, explainable knowledge base:
 run it. Nothing gets installed, and nothing is written next to them (your
 recipes, scripts and cache live in `%APPDATA%\histex`).
 
+histex uses the [SignPath Foundation](https://signpath.org/) for code
+signing of its Windows releases.
+
 **1. Download histex.exe**
 
 ```powershell

@@ -8,6 +8,9 @@ All notable changes to histex. No browser integration - terminal and files only.
 - docs: the README no longer shows the hand-drawn picker screenshot
   (`docs/picker.svg`) nor its text twin - both had drifted from the real
   screen. The picker header itself is unchanged.
+- docs: the README's Windows install section now states that histex uses the
+  SignPath Foundation for code signing of its releases (the CI integration
+  ships dormant since `ca31847`).
 
 ## [2.8] - 2026-10-11
 
