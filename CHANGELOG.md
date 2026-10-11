@@ -2,6 +2,14 @@
 
 All notable changes to histex. No browser integration - terminal and files only.
 
+## [2.8] - 2026-10-11
+
+### Changed
+- The script destination prompt of the CTRL-T save flow now starts at the
+  shell's working directory, so a plain ENTER saves the script next to the
+  work (`save .ps1 to [<where-you-are>]> _`); the data-dir `scripts/` folder
+  stays only as the fallback when the working directory cannot be read.
+
 ## [2.7.1] - 2026-10-11
 
 ### Fixed

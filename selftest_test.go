@@ -293,6 +293,38 @@ func TestResolveScriptTargetOverwrite(t *testing.T) {
 	}
 }
 
+// TestSaveScriptDefaultsToTheWorkingDir: the destination prompt starts where
+// the user stands, so a blank answer saves the script next to their work -
+// not in the data-dir scripts folder.
+func TestSaveScriptDefaultsToTheWorkingDir(t *testing.T) {
+	dataDir := t.TempDir()
+	workDir := t.TempDir()
+	cfg := defaultConfig()
+	cfg.DataDir = dataDir
+	oldWd, wdErr := os.Getwd()
+	if wdErr != nil {
+		t.Fatal(wdErr)
+	}
+	if err := os.Chdir(workDir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(oldWd) }()
+
+	// Title, blank tags, format 2 (.ps1), blank destination (accept the
+	// bracket), blank file name (accept the slug).
+	if !runSaveFlow(cfg, "My Title\n\n2\n\n\n") {
+		t.Fatal("saving with the default destination must succeed")
+	}
+	target := filepath.Join(workDir, "my-title.ps1")
+	if !isFile(target) {
+		t.Fatalf("the script was not written next to the working dir: %s", target)
+	}
+	scriptsDir := filepath.Join(dataDir, "scripts")
+	if entries, err := os.ReadDir(scriptsDir); err == nil && len(entries) > 0 {
+		t.Errorf("the data-dir scripts folder must stay untouched, found %d", len(entries))
+	}
+}
+
 func TestSaveRecipeFlowWritesNothingWhenCancelled(t *testing.T) {
 	dataDir := t.TempDir()
 	outDir := t.TempDir()

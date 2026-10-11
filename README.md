@@ -293,19 +293,23 @@ Format:  [1] markdown only   [2] +PowerShell .ps1   [3] +batch .bat
 nothing lands in `scripts/`. Picking `2`-`5` also asks **where** the script goes:
 
 ```
-save .ps1 to [C:\Users\you\AppData\Roaming\histex\scripts]> _
+save .ps1 to [C:\...\mywebsite\app\public]> _
 ```
 
-That is a single line: the directory in brackets is where you are right now.
-Type `cd <folder>` or a path to move, `..` to go up, `...` to pick from a flat
-fzf list, and just ENTER to accept the shown folder. Then one more line asks for
-the file name (`[ollama-dayeneba.ps1]>`). Nothing else is ever printed, so the
-screen stays clean.
+The directory in brackets starts as **the folder you are standing in** when you
+run histex (your shell's working directory; the data-dir `scripts/` folder is
+only the fallback when it cannot be read, and otherwise one typed path away).
+Type `cd <folder>` or a path to move, `..` to go up, `.` to stay, `...` to pick
+from a flat fzf list, and just ENTER to accept the shown folder - so a plain
+ENTER saves the script next to your work. Then one more line asks for the file
+name (`[ollama-dayeneba.ps1]>`). Nothing else is ever printed, so the screen
+stays clean.
 
-Every question is asked **before** anything is written. Cancelling a prompt
-(CTRL-C/EOF) or an unusable answer stops the whole save, so a recipe file can
-never gain a half-written or empty entry; if a write still fails halfway, the
-files are put back and the new script is removed.
+Cancelling (`cancel`, CTRL-C/EOF) aborts the whole save, while an unusable
+answer asks the single line again; a save can never gain a half-written or
+empty entry, because every question is asked **before** anything is written.
+If a write still fails halfway, the files are put back and the new script is
+removed.
 
 Where a script lives is part of the recipe's history, so it is recorded twice:
 in `recipes.jsonl` (`"scripts": [...]`) and in `saved_recipes.md` right under the

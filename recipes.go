@@ -610,7 +610,12 @@ func saveRecipeFlow(commands []string, cfg *Config) bool {
 		payload   []byte
 	}
 	plans := []scriptPlan{}
-	defaultDir := dataPath(cfg, "scripts_dir")
+	// The prompt starts where the user stands: the shell's working directory.
+	// The data-dir scripts folder is still one typed path away when wanted.
+	defaultDir := mustGetwd()
+	if defaultDir == "" {
+		defaultDir = dataPath(cfg, "scripts_dir")
+	}
 	for _, extension := range picked {
 		if (extension == ".bat" || extension == ".cmd") &&
 			!isASCII(strings.Join(cleaned, "\n")) {

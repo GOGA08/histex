@@ -43,12 +43,13 @@ green local run means a green build.
 | `history.go` | history discovery, parsing, dedup, ordering, the local cache |
 | `explain.go` | the explain chain, the query planner, both previews |
 | `recipes.go` | Markdown recipes, the JSONL log, runnable scripts, `--browse` |
+| `cleanup.go` | the temp files that must not outlive the process (CTRL-C safe) |
 | `fzf.go` | the picker: flags, the NUL protocol, the sort toggle |
 | `modes.go` | `--clean`, `--stats`, the sidecar log, `--pick` / `--json` |
-| `snippet.go` | the PowerShell profile snippet |
+| `snippet.go` | the profile snippets: the PowerShell `$PROFILE` text and `histex_profile.sh` for bash/zsh |
 | `doctor.go` | the `--doctor` rows |
 | `selftest.go` | every offline check, shared by `--self-test` and `go test` |
-| `textio.go` | the text I/O rules (UTF-8, BOM, CRLF) |
+| `textio.go` | the text I/O rules (UTF-8, BOM, CRLF) and the stdout/stderr payload routing (`--pick` / `--json`: payload on stdout, human text on stderr) |
 | `guards.go` | the secret and danger pattern guards |
 | `platform_*.go` | the per-OS parts: clipboard, console, PowerShell |
 
