@@ -62,6 +62,51 @@ jobs:
             throw "$native reports $reported but the tag is $version"
           }
           Write-Output "[ok] $native reports $reported"
+      # --- optional SignPath code signing (Windows exe only) -----------------
+      # Dormant until the repo secrets are set: SIGNPATH_API_TOKEN,
+      # SIGNPATH_ORG_ID, SIGNPATH_PROJECT_SLUG, SIGNPATH_SIGNING_POLICY_SLUG.
+      # Apply for free OSS signing at signpath.io, install the SignPath GitHub
+      # App on this repo, link the repo to the project, then add the secrets.
+      # While the secrets are missing every release ships unsigned as before.
+      - name: check for signpath signing credentials
+        id: signpath
+        shell: pwsh
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+          SIGNPATH_ORG_ID: ${{ secrets.SIGNPATH_ORG_ID }}
+          SIGNPATH_PROJECT_SLUG: ${{ secrets.SIGNPATH_PROJECT_SLUG }}
+          SIGNPATH_SIGNING_POLICY_SLUG: ${{ secrets.SIGNPATH_SIGNING_POLICY_SLUG }}
+        run: |
+          $ok = $env:SIGNPATH_API_TOKEN -and $env:SIGNPATH_ORG_ID -and $env:SIGNPATH_PROJECT_SLUG -and $env:SIGNPATH_SIGNING_POLICY_SLUG
+          if ($ok) { "present=true" >> $env:GITHUB_OUTPUT; Write-Output "[ok] signpath signing enabled" }
+          else { "present=false" >> $env:GITHUB_OUTPUT; Write-Output "[skip] signpath secrets not set - this build ships unsigned" }
+      - name: upload the unsigned exe for signing
+        if: steps.signpath.outputs.present == 'true' && runner.os == 'Windows'
+        id: upload-unsigned-artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: unsigned-histex-windows
+          path: histex.exe
+      - name: sign the exe with signpath
+        if: steps.signpath.outputs.present == 'true' && runner.os == 'Windows'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ secrets.SIGNPATH_ORG_ID }}
+          project-slug: ${{ secrets.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ secrets.SIGNPATH_SIGNING_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.upload-unsigned-artifact.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed-histex
+      - name: replace the exe with the signed one
+        if: steps.signpath.outputs.present == 'true' && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $signed = "signed-histex\histex.exe"
+          if (-not (Test-Path $signed)) { throw "signpath reported success but $signed is missing" }
+          Copy-Item $signed histex.exe -Force
+          Write-Output "[ok] histex.exe replaced with the signed build"
+      # -------------------------------------------------------------------------
       - uses: actions/upload-artifact@v7
         with:
           name: assets-${{ matrix.os }}
